@@ -18,6 +18,35 @@
 #### WIP (Unmerged)
 -->
 
+## v0.6.0 / 2026-XX-XX (Unreleased)
+
+#### New Features
+ * Feature -- Added comprehensive **Command-Line Interface (CLI)** for running QCManyBody calculations
+   from input files without writing Python code. Includes commands: `run`, `plan`, `validate`, and `convert`.
+   Supports both JSON and YAML input formats. See [CLI Guide](cli_guide.md) for details.
+ * Feature -- Added **Parallel Execution** module supporting multiple execution backends:
+   - **SequentialExecutor**: Reference implementation (single-threaded)
+   - **MultiprocessingExecutor**: Single-node parallelism using multiprocessing
+   - **ConcurrentExecutor**: Single-node parallelism using concurrent.futures
+   - **MPIExecutor**: Distributed multi-node parallelism (requires mpi4py)
+   See [Parallel Execution Guide](parallel_execution_guide.md) for details.
+ * Feature -- Added `ParallelManyBodyComputer` class for running many-body calculations with parallel execution.
+   Integrated seamlessly with existing `ManyBodyComputer.from_manybodyinput()` via `parallel=True` parameter.
+ * Feature -- Added task scheduling system with multiple strategies: `PRIORITY_FIRST`, `COST_FIRST`, 
+   `NBODY_FIRST`, and `FIFO`. Enables intelligent task ordering for optimal parallel performance.
+ * Feature -- Added checkpoint/restart functionality for long-running parallel calculations via `CheckpointManager`.
+
+#### Enhancements
+ * Intf -- `ManyBodyComputer.from_manybodyinput()` now accepts `parallel`, `n_workers`, and `executor` 
+   parameters for transparent parallel execution without changing existing code.
+ * Docs -- Added comprehensive parallel execution documentation including user guide, API reference, 
+   and migration guide.
+ * Docs -- Added CLI user guide with examples and command reference.
+
+#### Misc.
+ * Maint -- Added optional dependencies: `cli` extras (pyyaml, rich), `mpi` extras (mpi4py)
+ * Maint -- Updated package entry point to support `qcmanybody` command-line tool
+
 
 ## v0.5.1 / 2025-06-14
 

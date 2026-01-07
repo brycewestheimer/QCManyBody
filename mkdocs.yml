@@ -71,8 +71,13 @@ nav:
   - Home: index.md
   - high-level-interface.md
   - core-interface.md
+  - cli_guide.md
   - QCSchema: qcschema.md
   - How-To Guides: how-to-guides.md
+  - Parallel Execution:
+      - parallel_execution_guide.md
+      - parallel_api_reference.md
+      - parallel_migration_guide.md
   - API Documentation: api.md
 
 not_in_nav: |
