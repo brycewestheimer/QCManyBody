@@ -196,7 +196,9 @@ def convert_multi_level(cli_input: QCManyBodyInput) -> Dict[str, AtomicSpecifica
     return specifications_dict, levels_dict
 
 
-def create_manybody_keywords(cli_input: QCManyBodyInput, levels_dict: Optional[Dict] = None) -> ManyBodyKeywords:
+def create_manybody_keywords(
+    cli_input: QCManyBodyInput, levels_dict: Optional[Dict] = None, hmbe_hierarchy: Optional[Dict] = None
+) -> ManyBodyKeywords:
     """
     Create ManyBodyKeywords from CLI input.
 
@@ -206,6 +208,8 @@ def create_manybody_keywords(cli_input: QCManyBodyInput, levels_dict: Optional[D
         CLI input object
     levels_dict : Optional[Dict]
         Levels dictionary for multi-level calculations
+    hmbe_hierarchy : Optional[Dict]
+        Hierarchical structure for HMBE calculations
 
     Returns
     -------
@@ -237,6 +241,11 @@ def create_manybody_keywords(cli_input: QCManyBodyInput, levels_dict: Optional[D
     # Add levels for multi-level calculations
     if levels_dict is not None:
         kwargs["levels"] = levels_dict
+
+    # Add HMBE hierarchy for hierarchical calculations
+    if hmbe_hierarchy is not None:
+        kwargs["hmbe_hierarchy"] = hmbe_hierarchy
+        logger.info("HMBE mode enabled - hierarchical structure stored in keywords")
 
     return ManyBodyKeywords(**kwargs)
 
@@ -313,11 +322,54 @@ def convert_to_manybody_input(cli_input: QCManyBodyInput, input_file_path: Optio
 
             mol_schema = MoleculeSchema(**{**mol_schema.dict(), "file": str(resolved_path)})
 
-    # Load molecule
+    # Load molecule (or hierarchical structure for HMBE)
     try:
-        molecule = load_molecule(mol_schema)
+        molecule_or_hierarchy = load_molecule(mol_schema)
     except MoleculeLoadError as e:
         raise ConversionError(f"Failed to load molecule: {e}") from e
+
+    # Detect HMBE mode
+    hmbe_hierarchy = None
+    is_hmbe = isinstance(molecule_or_hierarchy, dict)
+
+    if is_hmbe:
+        # HMBE mode: create placeholder molecule, store hierarchy in keywords
+        hmbe_hierarchy = molecule_or_hierarchy
+        units = hmbe_hierarchy.get("units", "angstrom")
+
+        # Handle unit conversion for geometry coordinates
+        # The preprocessor expects geometry in the units specified in the hierarchy
+        # But we need to convert to bohr for the internal representation
+        from qcelemental import constants
+
+        if units == "angstrom":
+            conversion = constants.conversion_factor("angstrom", "bohr")
+        else:
+            conversion = 1.0
+
+        # Apply conversion to all geometries in the hierarchy
+        def convert_geometry_units(frag_dict):
+            """Recursively convert geometry units in fragment hierarchy."""
+            if "geometry" in frag_dict and frag_dict["geometry"] is not None:
+                frag_dict["geometry"] = [[x * conversion for x in coord] for coord in frag_dict["geometry"]]
+            if "sub_fragments" in frag_dict:
+                for sub in frag_dict["sub_fragments"]:
+                    convert_geometry_units(sub)
+
+        # Convert geometries to bohr (preprocessor expects bohr internally)
+        for frag in hmbe_hierarchy["fragments"]:
+            convert_geometry_units(frag)
+
+        # Store units as bohr now (since we converted)
+        hmbe_hierarchy["units"] = "bohr"
+
+        # Create a minimal placeholder molecule (will be replaced by preprocessor)
+        # The preprocessor will build the real flat molecule from the hierarchy
+        molecule = Molecule(symbols=["He"], geometry=[[0.0, 0.0, 0.0]], fragments=[[0]])
+        logger.info("HMBE mode detected - placeholder molecule created, hierarchy stored in keywords")
+    else:
+        # Standard mode: use the loaded molecule directly
+        molecule = molecule_or_hierarchy
 
     # Get driver
     driver = cli_input.get_driver().value
@@ -329,8 +381,8 @@ def convert_to_manybody_input(cli_input: QCManyBodyInput, input_file_path: Optio
     else:
         specifications, levels_dict = convert_multi_level(cli_input)
 
-    # Create ManyBody keywords
-    mb_keywords = create_manybody_keywords(cli_input, levels_dict)
+    # Create ManyBody keywords (pass HMBE hierarchy if present)
+    mb_keywords = create_manybody_keywords(cli_input, levels_dict, hmbe_hierarchy)
 
     # Create ManyBody protocols
     mb_protocols = create_manybody_protocols(cli_input)
@@ -350,7 +402,10 @@ def convert_to_manybody_input(cli_input: QCManyBodyInput, input_file_path: Optio
     )
 
     logger.info("Successfully converted to ManyBodyInput")
-    logger.debug(f"  Molecule: {len(molecule.symbols)} atoms, {len(molecule.fragments)} fragments")
+    if is_hmbe:
+        logger.debug(f"  HMBE mode: {hmbe_hierarchy['tiers']} tiers, {len(hmbe_hierarchy['fragments'])} primary fragments")
+    else:
+        logger.debug(f"  Molecule: {len(molecule.symbols)} atoms, {len(molecule.fragments)} fragments")
     logger.debug(f"  Driver: {driver}")
     logger.debug(f"  BSSE types: {[bt.value for bt in mb_keywords.bsse_type]}")
     if mb_keywords.max_nbody:

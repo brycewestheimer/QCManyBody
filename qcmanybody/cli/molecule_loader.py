@@ -11,7 +11,11 @@ from typing import List, Optional
 
 from qcelemental.models import Molecule
 
-from qcmanybody.cli.schemas.input_schema import MoleculeSchema, MoleculeSourceEnum
+from qcmanybody.cli.schemas.input_schema import (
+    HMBEHierarchicalMoleculeSchema,
+    MoleculeSchema,
+    MoleculeSourceEnum,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -337,7 +341,67 @@ def create_inline_molecule(mol_schema: MoleculeSchema) -> Molecule:
         raise MoleculeLoadError(f"Failed to create molecule from inline specification: {e}") from e
 
 
-def load_molecule(mol_schema: MoleculeSchema) -> Molecule:
+def convert_hmbe_hierarchical(hmbe_schema: HMBEHierarchicalMoleculeSchema) -> dict:
+    """
+    Convert HMBE hierarchical molecule schema to internal hierarchy format.
+
+    This function converts the CLI schema format to the dictionary format expected
+    by qcmanybody.hmbe.hierarchy.FragmentHierarchy.from_dict().
+
+    Parameters
+    ----------
+    hmbe_schema : HMBEHierarchicalMoleculeSchema
+        HMBE molecule specification from CLI input
+
+    Returns
+    -------
+    dict
+        Hierarchical structure dictionary compatible with FragmentHierarchy.from_dict()
+        Contains keys: tiers, max_primary_per_nmer, fragments, units
+
+    Notes
+    -----
+    The returned dictionary will be stored in ManyBodyKeywords.hmbe_hierarchy
+    and processed by the HMBE preprocessor to build the flat molecule.
+    """
+    # Convert Pydantic model to dictionary format expected by FragmentHierarchy
+    def convert_fragment(frag_schema):
+        """Recursively convert fragment schema to dict."""
+        frag_dict = {"id": frag_schema.id}
+
+        # Add elementary fragment data if present (leaf nodes)
+        if frag_schema.symbols is not None:
+            frag_dict["symbols"] = frag_schema.symbols
+        if frag_schema.geometry is not None:
+            frag_dict["geometry"] = frag_schema.geometry
+        if frag_schema.molecular_charge is not None:
+            frag_dict["molecular_charge"] = frag_schema.molecular_charge
+        if frag_schema.molecular_multiplicity is not None:
+            frag_dict["molecular_multiplicity"] = frag_schema.molecular_multiplicity
+
+        # Recursively convert sub-fragments
+        if frag_schema.sub_fragments is not None and len(frag_schema.sub_fragments) > 0:
+            frag_dict["sub_fragments"] = [convert_fragment(sub) for sub in frag_schema.sub_fragments]
+
+        return frag_dict
+
+    # Build hierarchical structure dictionary
+    hierarchy_dict = {
+        "tiers": hmbe_schema.tiers,
+        "max_primary_per_nmer": hmbe_schema.max_primary_per_nmer,
+        "fragments": [convert_fragment(frag) for frag in hmbe_schema.fragments],
+        "units": hmbe_schema.units,
+    }
+
+    logger.info(
+        f"Converted HMBE hierarchical molecule: {hmbe_schema.tiers} tiers, "
+        f"{len(hmbe_schema.fragments)} primary fragments, units: {hmbe_schema.units}"
+    )
+
+    return hierarchy_dict
+
+
+def load_molecule(mol_schema: MoleculeSchema):
     """
     Load molecule according to schema specification.
 
@@ -350,13 +414,20 @@ def load_molecule(mol_schema: MoleculeSchema) -> Molecule:
 
     Returns
     -------
-    Molecule
-        QCElemental Molecule object
+    Molecule or dict
+        For standard molecule sources (inline, xyz, pdb, qcschema): QCElemental Molecule object
+        For hmbe_hierarchical: dict with hierarchical structure (will be processed by converter)
 
     Raises
     ------
     MoleculeLoadError
         If molecule cannot be loaded
+
+    Notes
+    -----
+    For HMBE hierarchical molecules, this returns a dict rather than a Molecule.
+    The converter.py module detects this and stores the hierarchy in ManyBodyKeywords.hmbe_hierarchy.
+    The HMBE preprocessor then builds the flat molecule during computation.
 
     Examples
     --------
@@ -383,6 +454,13 @@ def load_molecule(mol_schema: MoleculeSchema) -> Molecule:
         if mol_schema.file is None:
             raise MoleculeLoadError("PDB file path not specified")
         return load_pdb_file(mol_schema.file, mol_schema.fragments)
+
+    elif source == MoleculeSourceEnum.hmbe_hierarchical:
+        if mol_schema.hmbe is None:
+            raise MoleculeLoadError("HMBE hierarchy specification not provided")
+        # Return hierarchical structure dict (not a Molecule)
+        # The converter will detect this and store it in ManyBodyKeywords.hmbe_hierarchy
+        return convert_hmbe_hierarchical(mol_schema.hmbe)
 
     else:
         raise MoleculeLoadError(f"Unsupported molecule source: {source}")

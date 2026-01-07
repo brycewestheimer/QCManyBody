@@ -43,6 +43,7 @@ class MoleculeSourceEnum(str, Enum):
     xyz = "xyz"  # From XYZ file
     pdb = "pdb"  # From PDB file
     qcschema = "qcschema"  # From QCSchema JSON file
+    hmbe_hierarchical = "hmbe_hierarchical"  # Hierarchical Many-Body Expansion (HMBE) format
 
 
 class OutputFormatEnum(str, Enum):
@@ -144,6 +145,84 @@ class FileMoleculeSchema(BaseModel):
     )
 
 
+class HMBEFragmentSchema(BaseModel):
+    """Recursive fragment schema for HMBE hierarchies."""
+
+    id: str = Field(
+        ...,
+        description="Unique identifier for this fragment.",
+    )
+    symbols: Optional[List[str]] = Field(
+        None,
+        description="Atomic symbols for elementary fragments (e.g., ['O', 'H', 'H']). Required for leaf fragments.",
+    )
+    geometry: Optional[List[List[float]]] = Field(
+        None,
+        description="Atomic coordinates for elementary fragments. Required for leaf fragments.",
+    )
+    molecular_charge: Optional[float] = Field(
+        0.0,
+        description="Molecular charge for this fragment.",
+    )
+    molecular_multiplicity: Optional[int] = Field(
+        1,
+        description="Spin multiplicity for this fragment.",
+    )
+    sub_fragments: Optional[List['HMBEFragmentSchema']] = Field(
+        None,
+        description="Child fragments for composite fragments. Omit for elementary (leaf) fragments.",
+    )
+
+    @validator("geometry")
+    @classmethod
+    def validate_geometry(cls, v, values):
+        """Ensure geometry has correct shape if provided."""
+        if v is not None:
+            for coord in v:
+                if len(coord) != 3:
+                    raise ValueError(f"Each coordinate must have exactly 3 values (x, y, z), got {len(coord)}")
+            if "symbols" in values and values["symbols"] is not None:
+                if len(v) != len(values["symbols"]):
+                    raise ValueError(f"Geometry has {len(v)} coordinates but {len(values['symbols'])} atoms")
+        return v
+
+
+class HMBEHierarchicalMoleculeSchema(BaseModel):
+    """Hierarchical molecule specification for HMBE calculations."""
+
+    tiers: int = Field(
+        ...,
+        ge=2,
+        description="Number of hierarchy tiers (must be >= 2). Example: 2 for primary→elementary.",
+    )
+    max_primary_per_nmer: int = Field(
+        2,
+        ge=1,
+        description="Maximum number of primary fragments allowed per N-mer. "
+        "This is the key HMBE constraint that reduces computational cost. Default: 2.",
+    )
+    fragments: List[HMBEFragmentSchema] = Field(
+        ...,
+        description="Top-level (primary) fragments. Each may contain sub-fragments recursively.",
+    )
+    units: Optional[Literal["angstrom", "bohr"]] = Field(
+        "angstrom",
+        description="Units for geometry coordinates in all fragments.",
+    )
+
+    @validator("fragments")
+    @classmethod
+    def validate_fragments(cls, v):
+        """Ensure at least one primary fragment is specified."""
+        if len(v) == 0:
+            raise ValueError("Must specify at least one primary fragment")
+        return v
+
+
+# Enable forward references for recursive model
+HMBEFragmentSchema.update_forward_refs()
+
+
 class MoleculeSchema(BaseModel):
     """Molecule specification."""
 
@@ -165,6 +244,11 @@ class MoleculeSchema(BaseModel):
         None,
         description="Fragment definitions for file-based molecules.",
     )
+    # For HMBE hierarchical specification
+    hmbe: Optional[HMBEHierarchicalMoleculeSchema] = Field(
+        None,
+        description="Hierarchical molecule specification for HMBE. Required if source='hmbe_hierarchical'.",
+    )
 
     @validator("inline")
     @classmethod
@@ -182,6 +266,14 @@ class MoleculeSchema(BaseModel):
         if source in [MoleculeSourceEnum.xyz, MoleculeSourceEnum.pdb, MoleculeSourceEnum.qcschema]:
             if v is None:
                 raise ValueError(f"'file' must be specified when source='{source.value}'")
+        return v
+
+    @validator("hmbe")
+    @classmethod
+    def validate_hmbe(cls, v, values):
+        """Ensure hmbe is provided when source='hmbe_hierarchical'."""
+        if values.get("source") == MoleculeSourceEnum.hmbe_hierarchical and v is None:
+            raise ValueError("'hmbe' must be specified when source='hmbe_hierarchical'")
         return v
 
 
