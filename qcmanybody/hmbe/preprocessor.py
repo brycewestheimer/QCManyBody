@@ -56,7 +56,8 @@ class HMBEPreprocessor:
         if input_data.specification.keywords is None:
             return False
 
-        hmbe_hierarchy = input_data.specification.keywords.hmbe_hierarchy
+        # Use getattr for safer attribute access (handles both old and new model versions)
+        hmbe_hierarchy = getattr(input_data.specification.keywords, 'hmbe_hierarchy', None)
         return hmbe_hierarchy is not None
 
     @staticmethod

@@ -44,7 +44,9 @@ class ManyBodyCore:
         return_total_data: bool,
         supersystem_ie_only: bool,
         embedding_charges: Mapping[int, Sequence[float]],
+        restricted_tuples: Mapping[int, Sequence[tuple]] = None,
     ):
+        self.restricted_tuples = restricted_tuples
         self.embedding_charges = embedding_charges
         if self.embedding_charges:
             if not bool(os.environ.get("QCMANYBODY_EMBEDDING_CHARGES", False)):  # obscure until further validation
@@ -168,6 +170,7 @@ class ManyBodyCore:
                 self.return_total_data,
                 self.supersystem_ie_only,
                 self.max_nbody,
+                restricted_tuples=self.restricted_tuples,
             )
 
         return self.mc_compute_dict

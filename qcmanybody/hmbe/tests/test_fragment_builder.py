@@ -232,7 +232,7 @@ class TestHMBEFragmentBuilder:
 
         assert len(mol.symbols) == 3  # O, H, H
         assert len(mol.fragments) == 1  # 1 elementary fragment
-        assert mol.fragments[0] == [0, 1, 2]  # Water molecule
+        assert list(mol.fragments[0]) == [0, 1, 2]  # Water molecule
         assert mol.symbols == ["O", "H", "H"]
 
     def test_charged_fragments(self):

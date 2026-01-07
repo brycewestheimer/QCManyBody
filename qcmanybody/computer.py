@@ -423,6 +423,15 @@ class ManyBodyComputer(BaseComputerQCNG):
                 executor=executor,
             )
 
+        # Check for HMBE mode and preprocess if needed
+        from qcmanybody.hmbe import HMBEPreprocessor
+
+        if HMBEPreprocessor.is_hmbe_input(input_model):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("HMBE mode detected - preprocessing hierarchical structure")
+            input_model = HMBEPreprocessor.preprocess_hmbe_input(input_model)
+
         computer_model = cls(
             molecule=input_model.molecule,
             driver=input_model.specification.driver,
@@ -454,6 +463,17 @@ class ManyBodyComputer(BaseComputerQCNG):
             ] = computer_model.driver  # overrides atomic driver with mb driver
             specifications[mtd]["specification"].pop("schema_name", None)
 
+        # Extract restricted tuples from HMBE metadata if present
+        restricted_tuples = None
+        hmbe_metadata = HMBEPreprocessor.get_hmbe_metadata(input_model)
+        if hmbe_metadata is not None:
+            # Convert valid_tuples from extras back to dict with int keys and tuple values
+            valid_tuples_str = hmbe_metadata.get("valid_tuples", {})
+            restricted_tuples = {
+                int(nbody): [tuple(t) for t in tuples]
+                for nbody, tuples in valid_tuples_str.items()
+            }
+
         computer_model.qcmb_core = ManyBodyCore(
             computer_model.molecule,
             computer_model.bsse_type,
@@ -461,6 +481,7 @@ class ManyBodyComputer(BaseComputerQCNG):
             return_total_data=computer_model.return_total_data,
             supersystem_ie_only=computer_model.supersystem_ie_only,
             embedding_charges=computer_model.embedding_charges,
+            restricted_tuples=restricted_tuples,
         )
 
         # check that core and computer storage are consistent in mc ordering and grouping and nbody levels
