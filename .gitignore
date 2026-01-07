@@ -164,4 +164,6 @@ timer.dat
 psi.*.clean
 
 # AI Tools
-CLAUDE.md
+.vscode/
+hmbe_integration/
+files_for_removal/

@@ -15,6 +15,7 @@ def build_nbody_compute_list(
     return_total_data: bool,
     supersystem_ie_only: bool,
     supersystem_max_nbody: Optional[int] = None,
+    restricted_tuples: Optional[Dict[int, List[tuple]]] = None,
 ) -> Dict[str, Dict[int, Set["FragBasIndex"]]]:
     """Generates lists of N-Body computations needed for requested BSSE treatments.
 
@@ -35,6 +36,13 @@ def build_nbody_compute_list(
         analysis, thereby omitting intermediate-body calculations.
     supersystem_max_nbody
         Maximum n-body to use for a supersystem calculation. Must be specified if "supersystem" is in `nbodies`
+    restricted_tuples
+        Optional dictionary of restricted N-mer tuples for HMBE mode. Keys are n-body levels (int),
+        values are lists of tuples of fragment indices (0-indexed). When provided, only these specific
+        N-mers are computed instead of all possible combinations. This enables HMBE calculations where
+        N-mers are restricted based on hierarchical constraints.
+        Example: {1: [(0,), (1,), (2,)], 2: [(0, 1), (0, 2)]} computes only specified dimers.
+        Note: Fragment indices are 0-indexed in restricted_tuples but converted to 1-indexed internally.
 
     Returns
     -------
@@ -73,6 +81,24 @@ def build_nbody_compute_list(
     # What levels do we need?
     fragment_range = range(1, nfragments + 1)
 
+    # Helper function to get combinations (restricted if HMBE, otherwise all combinations)
+    def get_combinations(nbody_level: int) -> Iterable[tuple]:
+        """Get fragment combinations for a given n-body level.
+
+        If restricted_tuples is provided (HMBE mode), returns only those tuples.
+        Otherwise, returns all possible combinations via itertools.combinations.
+
+        Note: restricted_tuples uses 0-indexing, so we convert to 1-indexing here.
+        """
+        if restricted_tuples is not None and nbody_level in restricted_tuples:
+            # HMBE mode: use restricted tuples, converting from 0-indexed to 1-indexed
+            for tup in restricted_tuples[nbody_level]:
+                # Convert 0-indexed to 1-indexed
+                yield tuple(idx + 1 for idx in tup)
+        else:
+            # Standard MBE: all combinations
+            yield from itertools.combinations(fragment_range, nbody_level)
+
     # Need nbodies and all lower-body in full basis
     cp_compute_list = {x: set() for x in nbodies}
     nocp_compute_list = {x: set() for x in nbodies}
@@ -91,7 +117,7 @@ def build_nbody_compute_list(
 
         if supersystem_ie_only:
             for sublevel in [1, nfragments]:
-                for x in itertools.combinations(fragment_range, sublevel):
+                for x in get_combinations(sublevel):
                     cp_compute_list[nfragments].add((x, basis_tuple))
         else:
             for nb in nbodies:
@@ -102,25 +128,25 @@ def build_nbody_compute_list(
                 #   skipped tasks. See coordinating Note A.2 .
                 if nb > 1:
                     for sublevel in range(1, nb + 1):
-                        for x in itertools.combinations(fragment_range, sublevel):
+                        for x in get_combinations(sublevel):
                             cp_compute_list[nb].add((x, basis_tuple))
 
     if "nocp" in bsse_type:
         # Everything in natural/n-mer basis
         if supersystem_ie_only:
             for sublevel in [1, nfragments]:
-                for x in itertools.combinations(fragment_range, sublevel):
+                for x in get_combinations(sublevel):
                     nocp_compute_list[nfragments].add((x, x))
         else:
             for nb in nbodies:
                 for sublevel in range(1, nb + 1):
-                    for x in itertools.combinations(fragment_range, sublevel):
+                    for x in get_combinations(sublevel):
                         nocp_compute_list[nb].add((x, x))
 
     if "vmfc" in bsse_type:
         # Like a CP for all combinations of pairs or greater
         for nb in nbodies:
-            for cp_combos in itertools.combinations(fragment_range, nb):
+            for cp_combos in get_combinations(nb):
                 basis_tuple = tuple(cp_combos)
                 # TODO vmfc_compute_list and vmfc_level_list are identical, so consolidate
                 for interior_nbody in range(1, nb + 1):
@@ -142,7 +168,7 @@ def build_nbody_compute_list(
             nocp_compute_list.setdefault(nb, set())
             vmfc_compute_list.setdefault(nb, set())
             for sublevel in range(1, nb + 1):
-                for x in itertools.combinations(fragment_range, sublevel):
+                for x in get_combinations(sublevel):
                     nocp_compute_list[nb].add((x, x))
 
         # Add the total supersystem (nfragments@nfragments)

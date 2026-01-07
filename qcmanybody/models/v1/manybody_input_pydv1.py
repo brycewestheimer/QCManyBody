@@ -217,6 +217,18 @@ class ManyBodyKeywords(ProtoModel):
         "example, 2-body subsystems can be skipped with ``supersystem_ie_only=True``. Do not use with ``vmfc`` in "
         "``bsse_type`` as it cannot produce savings.",
     )
+    hmbe_hierarchy: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Hierarchical fragment structure for Hierarchical Many-Body Expansion (HMBE). When provided, "
+        "enables HMBE mode where N-mer calculations are restricted based on hierarchical constraints. The hierarchy "
+        "defines a multi-tier structure (e.g., primary → secondary → elementary fragments) and restricts N-mers to "
+        "contain fragments from at most max_primary_per_nmer different primary fragments. This dramatically reduces "
+        "computational cost for hierarchically-structured systems. "
+        "Required keys: 'tiers' or 'hmbe_order' (int), 'fragments' (list of hierarchical fragment dicts). "
+        "Optional keys: 'max_primary_per_nmer' (int, default 2). "
+        "Fragment dicts support both QCElemental format ('symbols', 'geometry', 'sub_fragments') and reference format "
+        "('elements', 'coordinates', 'fragments') for backward compatibility.",
+    )
 
     @validator("bsse_type", pre=True)
     @classmethod
