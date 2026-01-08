@@ -69,16 +69,24 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - high-level-interface.md
-  - core-interface.md
-  - QCSchema: qcschema.md
+  - Getting Started: getting_started.md
+  - User Guides:
+    - High-Level Interface: high-level-interface.md
+    - Core Interface: core-interface.md
+    - CLI Guide: cli_guide.md
+    - Parallel Execution: parallel_execution_guide.md
+  - Reference:
+    - API Documentation: api.md
+    - Parallel API Reference: parallel_api_reference.md
+    - QCSchema: qcschema.md
+    - Keywords: keywords.md
+    - Results: results.md
   - How-To Guides: how-to-guides.md
-  - API Documentation: api.md
+  - Migration:
+    - Parallel Migration Guide: parallel_migration_guide.md
+  - Changelog: changelog.md
 
 not_in_nav: |
-  /changelog.md
-  /results.md
-  /keywords.md
 
 validation:
   omitted_files: warn

@@ -16,6 +16,24 @@ QCManyBody
 QCManyBody is a python package for running quantum chemistry many-body expansions and interaction calculations in a
 package-independent way.
 
+## Features
+
+- **Flexible Many-Body Expansions**: Compute interaction energies, gradients, and Hessians at various n-body levels
+- **BSSE Corrections**: Support for nocp, cp (counterpoise), and vmfc (Valiron-Mayer function counterpoise) corrections
+- **Multi-Level Calculations**: Use different QC methods at different n-body levels for efficiency
+- **Parallel Execution**: Built-in support for multiprocessing and MPI for HPC clusters
+- **QC Program Integration**: Works with Psi4, NWChem, CFOUR, and other QCEngine-supported programs
+- **QCSchema Compliance**: Full integration with QCElemental and QCEngine ecosystems
+- **Command-Line Interface**: Run calculations from JSON/YAML input files without Python coding
+
+## Quick Links
+
+- **[Documentation](https://molssi.github.io/QCManyBody/)** - Complete guides and API reference
+- **[Getting Started](https://molssi.github.io/QCManyBody/getting_started.html)** - Your first calculation
+- **[Examples](qcmanybody/tests/test_examples.py)** - Working code examples
+- **[Parallel Execution](https://molssi.github.io/QCManyBody/parallel_execution_guide.html)** - Speed up calculations
+- **[How-To Guides](https://molssi.github.io/QCManyBody/how-to-guides.html)** - Common tasks and recipes
+
 ## Installation
 
 QCManyBody is available from [PyPI](https://pypi.org/project/qcmanybody) and from
@@ -39,12 +57,58 @@ pip install git+https://github.com/MolSSI/QCManyBody.git
 ### Optional Dependencies
 
 ```bash
-# For YAML input file support (recommended)
-pip install pyyaml
+# For parallel execution with MPI (optional)
+pip install qcmanybody[mpi]
+
+# For CLI with enhanced formatting (optional)
+pip install qcmanybody[cli]
 
 # For QC program execution
 pip install qcengine
 ```
+
+## Python API Quick Start
+
+```python
+from qcelemental.models import Molecule
+from qcmanybody import ManyBodyComputer
+from qcmanybody.models import ManyBodyInput
+
+# Define molecule with fragments
+mol = Molecule(
+    symbols=["He", "He", "He"],
+    geometry=[[0, 0, 0], [0, 0, 2], [0, 0, 4]],
+    fragments=[[0], [1], [2]],
+)
+
+# Create input specification
+manybodyinput = ManyBodyInput(
+    molecule=mol,
+    specification={
+        "driver": "energy",
+        "keywords": {"max_nbody": 2, "bsse_type": ["cp"]},
+        "specification": {
+            "scf/sto-3g": {
+                "program": "psi4",
+                "model": {"method": "scf", "basis": "sto-3g"},
+                "driver": "energy",
+            }
+        },
+    },
+)
+
+# Run calculation (with optional parallel execution)
+result = ManyBodyComputer.from_manybodyinput(
+    manybodyinput,
+    parallel=True,
+    n_workers=4,
+)
+
+# Access results
+print(f"Interaction energy: {result.properties.cp_corrected_interaction_energy_through_2_body} Eh")
+```
+
+See the [Getting Started Guide](https://molssi.github.io/QCManyBody/getting_started.html) for a complete tutorial.
 
 ## Command-Line Interface (CLI)
 
