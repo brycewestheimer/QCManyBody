@@ -16,6 +16,13 @@ This file consolidates TODO comments from the codebase, organized by priority an
 
 ## Medium Priority
 
+### HMBE Features
+
+- [ ] **Implement FMO-style distance metric** (hmbe_filter.py:287)
+  - Add FMO-style scaling with van der Waals radii for Schengen term selection
+  - Currently falls back to R2 metric
+  - Impact: Better Schengen term selection for systems where vdW radii are important
+
 ### Code Quality & Architecture
 
 - [ ] **Consolidate vmfc lists** (builder.py:125)
@@ -134,9 +141,9 @@ This file consolidates TODO comments from the codebase, organized by priority an
 
 ## Summary Statistics
 
-- **Total TODOs in code**: 51
+- **Total TODOs in code**: 52
 - **High Priority**: 3 items (data validation)
-- **Medium Priority**: 12 items (architecture and code quality)
+- **Medium Priority**: 13 items (HMBE features, architecture and code quality)
 - **Low Priority**: 20 items (optimizations and documentation)
 - **Technical Debt**: 1 major item (Pydantic v2)
 
