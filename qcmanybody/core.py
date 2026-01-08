@@ -5,7 +5,7 @@ import math
 import os
 import string
 from collections import Counter, defaultdict
-from typing import Any, Dict, Iterable, Literal, Mapping, Sequence, Set, Tuple, Union
+from typing import Any, Dict, Iterable, Literal, Mapping, Optional, Sequence, Set, Tuple, Union
 
 import numpy as np
 from qcelemental.models import Molecule
@@ -13,6 +13,7 @@ from qcelemental.models import Molecule
 from qcmanybody.builder import build_nbody_compute_list
 from qcmanybody.dependency import NBodyDependencyGraph
 from qcmanybody.models.v1 import BsseEnum
+from qcmanybody.models.hierarchy import HMBESpecification
 from qcmanybody.utils import (
     all_same_shape,
     collect_vars,
@@ -44,7 +45,9 @@ class ManyBodyCore:
         return_total_data: bool,
         supersystem_ie_only: bool,
         embedding_charges: Mapping[int, Sequence[float]],
+        hmbe_spec: Optional[HMBESpecification] = None,
     ):
+        self.hmbe_spec = hmbe_spec
         self.embedding_charges = embedding_charges
         if self.embedding_charges:
             if not bool(os.environ.get("QCMANYBODY_EMBEDDING_CHARGES", False)):  # obscure until further validation
@@ -161,7 +164,7 @@ class ManyBodyCore:
 
         for mc in self.mc_levels:
             nbodies = self.nbodies_per_mc_level[mc]
-            self.mc_compute_dict[mc] = build_nbody_compute_list(
+            base_compute_dict = build_nbody_compute_list(
                 self.bsse_type,
                 self.nfragments,
                 nbodies,
@@ -169,6 +172,46 @@ class ManyBodyCore:
                 self.supersystem_ie_only,
                 self.max_nbody,
             )
+
+            # Apply HMBE filtering if specified
+            if self.hmbe_spec is not None:
+                from qcmanybody.hmbe_filter import (
+                    filter_compute_list,
+                    get_schengen_candidates,
+                    select_schengen_terms,
+                )
+
+                # Filter to base HMBE terms
+                filtered_dict = {}
+                for bsse_key, compute_list in base_compute_dict.items():
+                    filtered_dict[bsse_key] = filter_compute_list(compute_list, self.hmbe_spec)
+
+                # Add Schengen terms if enabled
+                if self.hmbe_spec.schengen and self.hmbe_spec.schengen.enabled:
+                    for bsse_key in filtered_dict:
+                        # Get candidates (terms in MBE but not in base HMBE)
+                        candidates = get_schengen_candidates(
+                            base_compute_dict[bsse_key], filtered_dict[bsse_key], self.hmbe_spec
+                        )
+
+                        # Select top fraction by distance metric
+                        schengen_terms = select_schengen_terms(candidates, self.molecule, self.hmbe_spec)
+
+                        # Add Schengen terms to filtered dict
+                        for frag_tuple in schengen_terms:
+                            nbody = len(frag_tuple)
+                            if nbody not in filtered_dict[bsse_key]:
+                                filtered_dict[bsse_key][nbody] = set()
+
+                            # Find matching (frag, bas) pairs from base MBE
+                            for frag, bas in base_compute_dict[bsse_key].get(nbody, set()):
+                                if frag == frag_tuple:
+                                    filtered_dict[bsse_key][nbody].add((frag, bas))
+
+                self.mc_compute_dict[mc] = filtered_dict
+            else:
+                # Standard MBE (no filtering)
+                self.mc_compute_dict[mc] = base_compute_dict
 
         return self.mc_compute_dict
 
@@ -184,6 +227,68 @@ class ManyBodyCore:
         if self._dependency_graph is None:
             self._dependency_graph = NBodyDependencyGraph(self.compute_map)
         return self._dependency_graph
+
+    def get_hmbe_statistics(self) -> Optional[Dict[str, Any]]:
+        """Get statistics about HMBE vs MBE term counts.
+
+        Returns
+        -------
+        Optional[Dict[str, Any]]
+            Dictionary with term counts, reduction factors, and HMBE metadata.
+            Returns None if HMBE is not enabled.
+
+            Keys include:
+            - mbe_term_counts: Dict[str, int] - term counts for full MBE by modelchem
+            - hmbe_term_counts: Dict[str, int] - term counts for HMBE by modelchem
+            - reduction_factors: Dict[str, float] - reduction factor (MBE/HMBE) by modelchem
+            - truncation_orders: Tuple[int, ...] - HMBE truncation orders
+            - num_tiers: int - number of hierarchical tiers
+            - schengen_enabled: bool - whether Schengen terms are included
+        """
+        if self.hmbe_spec is None:
+            return None
+
+        # Count base MBE terms (without HMBE filtering)
+        mbe_counts = {}
+        for mc in self.mc_levels:
+            nbodies = self.nbodies_per_mc_level[mc]
+            base_dict = build_nbody_compute_list(
+                self.bsse_type,
+                self.nfragments,
+                nbodies,
+                self.return_total_data,
+                self.supersystem_ie_only,
+                self.max_nbody,
+            )
+            # Count all terms across all BSSE types
+            all_terms = set()
+            for bsse_dict in base_dict.values():
+                for terms in bsse_dict.values():
+                    all_terms.update(terms)
+            mbe_counts[mc] = len(all_terms)
+
+        # Count HMBE terms (from compute_map which has filtering applied)
+        hmbe_counts = {}
+        for mc, compute_dict in self.compute_map.items():
+            all_terms = set()
+            for bsse_dict in compute_dict.values():
+                for terms in bsse_dict.values():
+                    all_terms.update(terms)
+            hmbe_counts[mc] = len(all_terms)
+
+        return {
+            "mbe_term_counts": mbe_counts,
+            "hmbe_term_counts": hmbe_counts,
+            "reduction_factors": {
+                mc: mbe_counts[mc] / hmbe_counts[mc] if hmbe_counts[mc] > 0 else 0.0
+                for mc in self.mc_levels
+            },
+            "truncation_orders": self.hmbe_spec.truncation_orders,
+            "num_tiers": self.hmbe_spec.num_tiers,
+            "schengen_enabled": (
+                self.hmbe_spec.schengen.enabled if self.hmbe_spec.schengen else False
+            ),
+        }
 
     def format_calc_plan(self, sset: str = "all") -> Tuple[str, Dict[str, Dict[int, int]]]:
         """Formulate per-modelchem and per-body job count data and summary text.

@@ -217,6 +217,12 @@ class ManyBodyKeywords(ProtoModel):
         "example, 2-body subsystems can be skipped with ``supersystem_ie_only=True``. Do not use with ``vmfc`` in "
         "``bsse_type`` as it cannot produce savings.",
     )
+    hmbe_spec: Optional[Any] = Field(
+        None,
+        description="Optional specification for Hierarchical Many-Body Expansion (HMBE). When provided, applies "
+        "hierarchical truncation to reduce computational cost by organizing fragments into tiers and applying "
+        "different truncation orders at each level. Requires HMBESpecification object from qcmanybody.models.hierarchy.",
+    )
 
     @validator("bsse_type", pre=True)
     @classmethod

@@ -22,6 +22,7 @@ from qcelemental.models import AtomicInput, AtomicResult, DriverEnum, FailedOper
 
 from qcmanybody import ManyBodyCore
 from qcmanybody.models.v1 import BsseEnum, ManyBodyInput, ManyBodyKeywords, ManyBodyResult, ManyBodyResultProperties
+from qcmanybody.models.hierarchy import HMBESpecification
 from qcmanybody.utils import delabeler, provenance_stamp
 
 if TYPE_CHECKING:
@@ -169,7 +170,13 @@ class ManyBodyComputer(BaseComputerQCNG):
             "shape": ["nfr", "<varies: nat in ifr>"],
         },
     )
-    return_total_data: Optional[bool] = Field(  # after driver, embedding_charges
+    hmbe_spec: Optional["HMBESpecification"] = Field(
+        None,
+        description="Optional specification for Hierarchical Many-Body Expansion (HMBE). When provided, applies "
+        "hierarchical truncation to reduce computational cost by organizing fragments into tiers and applying "
+        "different truncation orders at each level.",
+    )
+    return_total_data: Optional[bool] = Field(  # after driver, embedding_charges, hmbe_spec
         None,
         validate_default=True,
         # v2: description=ManyBodyKeywords.model_fields["return_total_data"].description,
@@ -461,6 +468,7 @@ class ManyBodyComputer(BaseComputerQCNG):
             return_total_data=computer_model.return_total_data,
             supersystem_ie_only=computer_model.supersystem_ie_only,
             embedding_charges=computer_model.embedding_charges,
+            hmbe_spec=computer_model.hmbe_spec,
         )
 
         # check that core and computer storage are consistent in mc ordering and grouping and nbody levels
@@ -563,6 +571,10 @@ class ManyBodyComputer(BaseComputerQCNG):
             "nuclear_repulsion_energy": self.molecule.nuclear_repulsion_energy(),
             "return_energy": ret_energy,
         }
+
+        # Add HMBE metadata if HMBE is enabled
+        if self.qcmb_core.hmbe_spec is not None:
+            properties["hmbe_metadata"] = self.qcmb_core.get_hmbe_statistics()
 
         if self.driver == "gradient":
             properties["return_gradient"] = ret_ptype

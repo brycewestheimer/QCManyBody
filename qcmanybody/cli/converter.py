@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 from qcelemental.models import Molecule
 
 from qcmanybody.cli.molecule_loader import MoleculeLoadError, load_molecule
-from qcmanybody.cli.schemas.input_schema import QCManyBodyInput
+from qcmanybody.cli.schemas.input_schema import QCManyBodyInput, HMBESchema
 from qcmanybody.models import (
     AtomicSpecification,
     BsseEnum,
@@ -18,6 +18,11 @@ from qcmanybody.models import (
     ManyBodyKeywords,
     ManyBodyProtocols,
     ManyBodySpecification,
+)
+from qcmanybody.models.hierarchy import (
+    FragmentHierarchy,
+    HMBESpecification,
+    SchengenSpecification,
 )
 
 logger = logging.getLogger(__name__)
@@ -196,6 +201,56 @@ def convert_multi_level(cli_input: QCManyBodyInput) -> Dict[str, AtomicSpecifica
     return specifications_dict, levels_dict
 
 
+def convert_hmbe_specification(hmbe_schema: HMBESchema) -> HMBESpecification:
+    """
+    Convert CLI HMBE schema to internal HMBESpecification.
+
+    Parameters
+    ----------
+    hmbe_schema : HMBESchema
+        HMBE specification from CLI input
+
+    Returns
+    -------
+    HMBESpecification
+        Internal HMBE specification object
+    """
+    # Convert fragment_tiers from Dict[int, List[str]] to Dict[int, Tuple[str, ...]]
+    fragment_tiers = {
+        frag_id: tuple(groups)
+        for frag_id, groups in hmbe_schema.hierarchy.fragment_tiers.items()
+    }
+
+    # Create FragmentHierarchy
+    hierarchy = FragmentHierarchy(
+        num_tiers=hmbe_schema.hierarchy.num_tiers,
+        fragment_tiers=fragment_tiers,
+        tier_names=tuple(hmbe_schema.hierarchy.tier_names) if hmbe_schema.hierarchy.tier_names else None,
+    )
+
+    # Create SchengenSpecification if enabled
+    schengen = None
+    if hmbe_schema.schengen:
+        schengen = SchengenSpecification(
+            enabled=hmbe_schema.schengen.enabled,
+            selection_fraction=hmbe_schema.schengen.selection_fraction,
+            distance_metric=hmbe_schema.schengen.distance_metric,
+        )
+
+    # Create HMBESpecification
+    hmbe_spec = HMBESpecification(
+        truncation_orders=tuple(hmbe_schema.truncation_orders),
+        hierarchy=hierarchy,
+        schengen=schengen,
+    )
+
+    logger.debug(f"Converted HMBE specification: {hmbe_spec.truncation_orders} truncation orders, {hmbe_spec.num_tiers} tiers")
+    if schengen and schengen.enabled:
+        logger.debug(f"  Schengen enabled: {schengen.selection_fraction:.1%} selection, {schengen.distance_metric} metric")
+
+    return hmbe_spec
+
+
 def create_manybody_keywords(cli_input: QCManyBodyInput, levels_dict: Optional[Dict] = None) -> ManyBodyKeywords:
     """
     Create ManyBodyKeywords from CLI input.
@@ -233,6 +288,10 @@ def create_manybody_keywords(cli_input: QCManyBodyInput, levels_dict: Optional[D
 
         if cli_input.manybody.embedding_charges is not None:
             kwargs["embedding_charges"] = cli_input.manybody.embedding_charges
+
+        # Convert HMBE specification if present
+        if cli_input.manybody.hmbe is not None:
+            kwargs["hmbe_spec"] = convert_hmbe_specification(cli_input.manybody.hmbe)
 
     # Add levels for multi-level calculations
     if levels_dict is not None:

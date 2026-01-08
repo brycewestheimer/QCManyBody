@@ -301,6 +301,107 @@ class BsseSchema(BaseModel):
         return v
 
 
+class HierarchySchema(BaseModel):
+    """Fragment hierarchy for HMBE."""
+
+    num_tiers: int = Field(
+        ...,
+        ge=2,
+        le=3,
+        description="Number of hierarchical tiers (2 or 3).",
+    )
+    fragment_tiers: Dict[int, List[str]] = Field(
+        ...,
+        description="Map from 1-based fragment ID to list of group names at each tier. "
+        "Example: {1: ['G0', 'S0'], 2: ['G0', 'S1'], 3: ['G1', 'S2']}",
+    )
+    tier_names: Optional[List[str]] = Field(
+        None,
+        description="Optional names for each tier (e.g., ['domain', 'residue', 'atom']). "
+        "Used for documentation/logging only.",
+    )
+
+    @validator("fragment_tiers")
+    @classmethod
+    def validate_fragment_tiers(cls, v, values):
+        """Ensure all fragments have correct tier depth."""
+        num_tiers = values.get("num_tiers")
+        if num_tiers is None:
+            return v
+
+        for frag_id, tier_path in v.items():
+            if len(tier_path) != num_tiers:
+                raise ValueError(
+                    f"Fragment {frag_id} has {len(tier_path)} tiers, expected {num_tiers}"
+                )
+        return v
+
+    @validator("tier_names")
+    @classmethod
+    def validate_tier_names(cls, v, values):
+        """Ensure tier_names matches num_tiers if provided."""
+        if v is not None and "num_tiers" in values:
+            if len(v) != values["num_tiers"]:
+                raise ValueError(
+                    f"tier_names has {len(v)} names but num_tiers={values['num_tiers']}"
+                )
+        return v
+
+
+class SchengenSchema(BaseModel):
+    """Schengen term selection for HMBE."""
+
+    enabled: bool = Field(
+        False,
+        description="Enable Schengen term selection.",
+    )
+    selection_fraction: float = Field(
+        0.1,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of candidate terms to include (e.g., 0.1 = top 10% by proximity).",
+    )
+    distance_metric: Literal["R2", "R", "R_inv", "R3_inv", "fmo"] = Field(
+        "R2",
+        description="Distance metric for ranking terms. Options: "
+        "R2 (sum of squared distances, recommended), "
+        "R (sum of distances), "
+        "R_inv (sum of inverse distances), "
+        "R3_inv (sum of inverse cubic distances), "
+        "fmo (FMO-style scaling).",
+    )
+
+
+class HMBESchema(BaseModel):
+    """Hierarchical Many-Body Expansion specification."""
+
+    truncation_orders: List[int] = Field(
+        ...,
+        description="Truncation orders (T_1, T_2, [T_3]) from coarsest to finest tier. "
+        "Must be non-decreasing. Example: [2, 3] for (2,3)-HMBE.",
+    )
+    hierarchy: HierarchySchema = Field(
+        ...,
+        description="Fragment hierarchy definition.",
+    )
+    schengen: Optional[SchengenSchema] = Field(
+        None,
+        description="Optional Schengen term selection to add back important interface terms.",
+    )
+
+    @validator("truncation_orders")
+    @classmethod
+    def validate_truncation_orders(cls, v):
+        """Validate monotonicity of truncation orders."""
+        for i in range(len(v) - 1):
+            if v[i] > v[i + 1]:
+                raise ValueError(
+                    f"Truncation orders must be non-decreasing: "
+                    f"T_{i+1}={v[i]} > T_{i+2}={v[i+1]}"
+                )
+        return v
+
+
 class ManyBodySchema(BaseModel):
     """Many-body expansion options."""
 
@@ -322,6 +423,12 @@ class ManyBodySchema(BaseModel):
         None,
         description="Point charges for fragments. Keys are 1-based fragment indices. "
         "Requires QCMANYBODY_EMBEDDING_CHARGES environment variable.",
+    )
+    hmbe: Optional[HMBESchema] = Field(
+        None,
+        description="Hierarchical Many-Body Expansion specification. "
+        "When provided, applies hierarchical truncation to reduce computational cost. "
+        "If specified, max_nbody must match the final truncation order (T_K).",
     )
 
 

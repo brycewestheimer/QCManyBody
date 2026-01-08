@@ -302,6 +302,18 @@ for singular in ["energy", "gradient", "Hessian"]:
             ),
         )
 
+#  ========  HMBE Metadata  =====================================================
+
+mbprop["hmbe_metadata"] = (
+    Optional[Dict[str, Any]],
+    Field(
+        None,
+        description="Metadata about Hierarchical Many-Body Expansion (HMBE) calculation. "
+        "Contains term counts, reduction factors, truncation orders, and configuration details. "
+        "Only present when HMBE is enabled via hmbe_spec in ManyBodyKeywords.",
+    ),
+)
+
 
 def _validate_arb_max_nbody_fieldnames(cls, values):
 

@@ -1,0 +1,90 @@
+{
+  "schema_name": "qcmanybody_cli_input",
+  "schema_version": 1,
+
+  "molecule": {
+    "source": "inline",
+    "inline": {
+      "symbols": [
+        "O", "H", "H",
+        "O", "H", "H",
+        "O", "H", "H",
+        "O", "H", "H",
+        "O", "H", "H",
+        "O", "H", "H"
+      ],
+      "geometry": [
+        [0.0, 0.0, 0.0], [0.0, 0.757, 0.587], [0.0, -0.757, 0.587],
+        [3.0, 0.0, 0.0], [3.0, 0.757, 0.587], [3.0, -0.757, 0.587],
+        [0.0, 3.0, 0.0], [0.0, 3.757, 0.587], [0.0, 2.243, 0.587],
+        [3.0, 3.0, 0.0], [3.0, 3.757, 0.587], [3.0, 2.243, 0.587],
+        [0.0, 6.0, 0.0], [0.0, 6.757, 0.587], [0.0, 5.243, 0.587],
+        [3.0, 6.0, 0.0], [3.0, 6.757, 0.587], [3.0, 5.243, 0.587]
+      ],
+      "fragments": [
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8],
+        [9, 10, 11],
+        [12, 13, 14],
+        [15, 16, 17]
+      ],
+      "units": "angstrom",
+      "molecular_charge": 0.0,
+      "molecular_multiplicity": 1
+    }
+  },
+
+  "calculation": {
+    "type": "single",
+    "single": {
+      "driver": "energy",
+      "method": "mp2",
+      "basis": "cc-pvdz",
+      "program": "psi4"
+    }
+  },
+
+  "bsse": {
+    "type": ["cp"]
+  },
+
+  "manybody": {
+    "max_nbody": 3,
+    "return_total_data": false,
+    "supersystem_ie_only": false,
+    "hmbe": {
+      "truncation_orders": [2, 3],
+      "hierarchy": {
+        "num_tiers": 2,
+        "fragment_tiers": {
+          "1": ["G0", "G0_S0"],
+          "2": ["G0", "G0_S1"],
+          "3": ["G1", "G1_S0"],
+          "4": ["G1", "G1_S1"],
+          "5": ["G2", "G2_S0"],
+          "6": ["G2", "G2_S1"]
+        },
+        "tier_names": ["domain", "water"]
+      },
+      "schengen": {
+        "enabled": true,
+        "selection_fraction": 0.1,
+        "distance_metric": "R2"
+      }
+    }
+  },
+
+  "execution": {
+    "parallel": true,
+    "n_workers": 4,
+    "executor_type": "multiprocessing"
+  },
+
+  "output": {
+    "format": "json",
+    "file": "hmbe_water6_results.json",
+    "pretty": true,
+    "include_timings": true
+  }
+}

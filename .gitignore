@@ -177,3 +177,4 @@ dependency_graph_*.json
 *_STATUS.md
 *_REPORT.md
 files_for_removal/
+hmbe_development/
