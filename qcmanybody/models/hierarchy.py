@@ -159,6 +159,31 @@ class FragmentHierarchy(BaseModel):
         distinct_groups = {self.fragment_tiers[frag][tier_idx] for frag in fragments}
         return len(distinct_groups)
 
+    def get_fragments_in_group(self, group_id: str, tier_idx: int) -> FrozenSet[int]:
+        """
+        Get all fragments belonging to a specific group at a given tier.
+
+        Parameters
+        ----------
+        group_id : str
+            Group identifier at the specified tier
+        tier_idx : int
+            0-indexed tier (0 = tier-1, 1 = tier-2, etc.)
+
+        Returns
+        -------
+        FrozenSet[int]
+            Frozenset of 1-indexed fragment IDs in the specified group
+
+        Examples
+        --------
+        >>> # Get all fragments in "GroupA" at tier-1
+        >>> frags = hierarchy.get_fragments_in_group("GroupA", 0)
+        >>> frags  # frozenset({1, 2, 3, 4})
+        """
+        tier_groups = self.get_tier_groups(tier_idx)
+        return tier_groups.get(group_id, frozenset())
+
 
 class SchengenSpecification(BaseModel):
     """
@@ -224,6 +249,11 @@ class HMBESpecification(BaseModel):
         Definition of the hierarchical fragment organization
     schengen : Optional[SchengenSpecification]
         Optional Schengen term selection for improved accuracy at interfaces
+    enumeration_mode : str
+        Method for generating HMBE terms. Options:
+        - "filter": Generate all MBE terms, then filter to HMBE subset (default)
+        - "direct": Generate only HMBE terms directly (top-down, faster for large systems)
+        - "auto": Automatically choose based on system size (<30 fragments: filter, ≥30: direct)
 
     Examples
     --------
@@ -234,6 +264,13 @@ class HMBESpecification(BaseModel):
     ...     schengen=SchengenSpecification(enabled=True, selection_fraction=0.1)
     ... )
     >>> hmbe_spec.max_nbody  # Returns 3
+    >>>
+    >>> # Use direct enumeration for large system
+    >>> hmbe_spec_large = HMBESpecification(
+    ...     truncation_orders=(2, 4),
+    ...     hierarchy=hierarchy,
+    ...     enumeration_mode="direct"
+    ... )
     """
 
     truncation_orders: Tuple[int, ...] = Field(
@@ -242,6 +279,11 @@ class HMBESpecification(BaseModel):
     hierarchy: FragmentHierarchy = Field(..., description="Fragment hierarchy definition")
     schengen: Optional[SchengenSpecification] = Field(
         None, description="Optional Schengen term specification"
+    )
+    enumeration_mode: Literal["filter", "direct", "auto"] = Field(
+        "auto",
+        description="Term enumeration method: 'filter' (generate all MBE then filter), "
+        "'direct' (generate only HMBE terms), or 'auto' (choose based on system size)"
     )
 
     class Config:

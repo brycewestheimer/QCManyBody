@@ -337,6 +337,99 @@ class TestHMBEIntegration:
         # Just verify it's in the statistics
         assert "hf/sto-3g" in stats["reduction_factors"]
 
+    def test_enumeration_modes_produce_identical_results(self):
+        """Test that 'direct' and 'filter' enumeration modes produce identical results."""
+        # Create a system where the modes differ in approach (but still fast)
+        mol = Molecule(
+            symbols=["He"] * 6,
+            geometry=[[float(i % 3), float(i // 3), 0] for i in range(6)],
+            fragments=[[i] for i in range(6)],
+        )
+
+        # Define 3x2 hierarchy (3 groups, 2 fragments each)
+        fragment_tiers = {}
+        for i in range(6):
+            frag_id = i + 1
+            tier1_group = f"G{i // 2}"
+            tier2_name = f"W{i}"
+            fragment_tiers[frag_id] = (tier1_group, tier2_name)
+
+        hierarchy = FragmentHierarchy(
+            num_tiers=2,
+            fragment_tiers=fragment_tiers,
+            tier_names=("group", "water"),
+        )
+
+        # Test with (2,3)-HMBE using "filter" mode
+        hmbe_spec_filter = HMBESpecification(
+            truncation_orders=(2, 3),
+            hierarchy=hierarchy,
+            enumeration_mode="filter",
+        )
+
+        mbcore_filter = ManyBodyCore(
+            molecule=mol,
+            bsse_type=[BsseEnum.cp],
+            levels={1: "hf/sto-3g", 2: "hf/sto-3g", 3: "hf/sto-3g"},
+            return_total_data=False,
+            supersystem_ie_only=False,
+            embedding_charges={},
+            hmbe_spec=hmbe_spec_filter,
+        )
+
+        # Test with (2,3)-HMBE using "direct" mode
+        hmbe_spec_direct = HMBESpecification(
+            truncation_orders=(2, 3),
+            hierarchy=hierarchy,
+            enumeration_mode="direct",
+        )
+
+        mbcore_direct = ManyBodyCore(
+            molecule=mol,
+            bsse_type=[BsseEnum.cp],
+            levels={1: "hf/sto-3g", 2: "hf/sto-3g", 3: "hf/sto-3g"},
+            return_total_data=False,
+            supersystem_ie_only=False,
+            embedding_charges={},
+            hmbe_spec=hmbe_spec_direct,
+        )
+
+        # Get compute maps for both
+        compute_map_filter = mbcore_filter.compute_map
+        compute_map_direct = mbcore_direct.compute_map
+
+        # Verify both maps have the same structure
+        assert compute_map_filter.keys() == compute_map_direct.keys()
+
+        for mc in compute_map_filter:
+            assert compute_map_filter[mc].keys() == compute_map_direct[mc].keys()
+
+            for bsse in compute_map_filter[mc]:
+                filter_terms = compute_map_filter[mc][bsse]
+                direct_terms = compute_map_direct[mc][bsse]
+
+                # Same n-body levels
+                assert filter_terms.keys() == direct_terms.keys()
+
+                # Same terms at each n-body level
+                for nbody in filter_terms:
+                    assert filter_terms[nbody] == direct_terms[nbody], (
+                        f"Mismatch at mc={mc}, bsse={bsse}, nbody={nbody}: "
+                        f"filter has {len(filter_terms[nbody])} terms, "
+                        f"direct has {len(direct_terms[nbody])} terms"
+                    )
+
+        # Verify statistics are identical
+        stats_filter = mbcore_filter.get_hmbe_statistics()
+        stats_direct = mbcore_direct.get_hmbe_statistics()
+
+        assert stats_filter["hmbe_term_counts"] == stats_direct["hmbe_term_counts"]
+        assert stats_filter["reduction_factors"] == stats_direct["reduction_factors"]
+
+        # Verify actual_enumeration_mode is correct
+        assert stats_filter["actual_enumeration_mode"] == "filter"
+        assert stats_direct["actual_enumeration_mode"] == "direct"
+
 
 class TestHMBEValidation:
     """Test HMBE validation and error handling."""

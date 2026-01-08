@@ -175,40 +175,104 @@ class ManyBodyCore:
 
             # Apply HMBE filtering if specified
             if self.hmbe_spec is not None:
-                from qcmanybody.hmbe_filter import (
-                    filter_compute_list,
-                    get_schengen_candidates,
-                    select_schengen_terms,
-                )
+                # Decide which enumeration mode to use
+                enumeration_mode = self.hmbe_spec.enumeration_mode
+                if enumeration_mode == "auto":
+                    # Auto mode: use direct for >=30 fragments, filter otherwise
+                    enumeration_mode = "direct" if self.nfragments >= 30 else "filter"
 
-                # Filter to base HMBE terms
-                filtered_dict = {}
-                for bsse_key, compute_list in base_compute_dict.items():
-                    filtered_dict[bsse_key] = filter_compute_list(compute_list, self.hmbe_spec)
+                if enumeration_mode == "direct":
+                    # Direct enumeration: generate only HMBE terms
+                    from qcmanybody.hmbe_enumerate import enumerate_hmbe_terms
 
-                # Add Schengen terms if enabled
-                if self.hmbe_spec.schengen and self.hmbe_spec.schengen.enabled:
-                    for bsse_key in filtered_dict:
-                        # Get candidates (terms in MBE but not in base HMBE)
-                        candidates = get_schengen_candidates(
-                            base_compute_dict[bsse_key], filtered_dict[bsse_key], self.hmbe_spec
+                    # Get HMBE fragment tuples
+                    hmbe_frag_tuples = enumerate_hmbe_terms(self.hmbe_spec)
+
+                    # Build compute dict from HMBE terms
+                    # Need to create (frag, bas) pairs for each BSSE type
+                    filtered_dict = {}
+                    for bsse_key in base_compute_dict:
+                        filtered_dict[bsse_key] = {}
+
+                        # For each HMBE fragment tuple, find ALL matching (frag, bas) pairs
+                        # in base_compute_dict, regardless of which nbody level they're stored at
+                        # (This is important for CP correction where ghost terms may be stored
+                        # at higher nbody levels)
+                        for frag_tuple in hmbe_frag_tuples:
+                            # Search across all nbody levels in base_compute_dict
+                            for nbody_level in base_compute_dict[bsse_key]:
+                                for frag, bas in base_compute_dict[bsse_key][nbody_level]:
+                                    if frag == frag_tuple:
+                                        # Store in the dict using the nbody_level from base_compute_dict
+                                        if nbody_level not in filtered_dict[bsse_key]:
+                                            filtered_dict[bsse_key][nbody_level] = set()
+                                        filtered_dict[bsse_key][nbody_level].add((frag, bas))
+
+                    # Add Schengen terms if enabled
+                    if self.hmbe_spec.schengen and self.hmbe_spec.schengen.enabled:
+                        from qcmanybody.hmbe_filter import (
+                            get_schengen_candidates,
+                            select_schengen_terms,
                         )
 
-                        # Select top fraction by distance metric
-                        schengen_terms = select_schengen_terms(candidates, self.molecule, self.hmbe_spec)
+                        for bsse_key in filtered_dict:
+                            # Get candidates (terms in MBE but not in base HMBE)
+                            candidates = get_schengen_candidates(
+                                base_compute_dict[bsse_key], filtered_dict[bsse_key], self.hmbe_spec
+                            )
 
-                        # Add Schengen terms to filtered dict
-                        for frag_tuple in schengen_terms:
-                            nbody = len(frag_tuple)
-                            if nbody not in filtered_dict[bsse_key]:
-                                filtered_dict[bsse_key][nbody] = set()
+                            # Select top fraction by distance metric
+                            schengen_terms = select_schengen_terms(candidates, self.molecule, self.hmbe_spec)
 
-                            # Find matching (frag, bas) pairs from base MBE
-                            for frag, bas in base_compute_dict[bsse_key].get(nbody, set()):
-                                if frag == frag_tuple:
-                                    filtered_dict[bsse_key][nbody].add((frag, bas))
+                            # Add Schengen terms to filtered dict
+                            for frag_tuple in schengen_terms:
+                                nbody = len(frag_tuple)
+                                if nbody not in filtered_dict[bsse_key]:
+                                    filtered_dict[bsse_key][nbody] = set()
 
-                self.mc_compute_dict[mc] = filtered_dict
+                                # Find matching (frag, bas) pairs from base MBE
+                                for frag, bas in base_compute_dict[bsse_key].get(nbody, set()):
+                                    if frag == frag_tuple:
+                                        filtered_dict[bsse_key][nbody].add((frag, bas))
+
+                    self.mc_compute_dict[mc] = filtered_dict
+
+                else:
+                    # Filter mode: generate all MBE terms, then filter
+                    from qcmanybody.hmbe_filter import (
+                        filter_compute_list,
+                        get_schengen_candidates,
+                        select_schengen_terms,
+                    )
+
+                    # Filter to base HMBE terms
+                    filtered_dict = {}
+                    for bsse_key, compute_list in base_compute_dict.items():
+                        filtered_dict[bsse_key] = filter_compute_list(compute_list, self.hmbe_spec)
+
+                    # Add Schengen terms if enabled
+                    if self.hmbe_spec.schengen and self.hmbe_spec.schengen.enabled:
+                        for bsse_key in filtered_dict:
+                            # Get candidates (terms in MBE but not in base HMBE)
+                            candidates = get_schengen_candidates(
+                                base_compute_dict[bsse_key], filtered_dict[bsse_key], self.hmbe_spec
+                            )
+
+                            # Select top fraction by distance metric
+                            schengen_terms = select_schengen_terms(candidates, self.molecule, self.hmbe_spec)
+
+                            # Add Schengen terms to filtered dict
+                            for frag_tuple in schengen_terms:
+                                nbody = len(frag_tuple)
+                                if nbody not in filtered_dict[bsse_key]:
+                                    filtered_dict[bsse_key][nbody] = set()
+
+                                # Find matching (frag, bas) pairs from base MBE
+                                for frag, bas in base_compute_dict[bsse_key].get(nbody, set()):
+                                    if frag == frag_tuple:
+                                        filtered_dict[bsse_key][nbody].add((frag, bas))
+
+                    self.mc_compute_dict[mc] = filtered_dict
             else:
                 # Standard MBE (no filtering)
                 self.mc_compute_dict[mc] = base_compute_dict
@@ -276,6 +340,12 @@ class ManyBodyCore:
                     all_terms.update(terms)
             hmbe_counts[mc] = len(all_terms)
 
+        # Determine which enumeration mode was actually used
+        enumeration_mode = self.hmbe_spec.enumeration_mode
+        actual_mode = enumeration_mode
+        if enumeration_mode == "auto":
+            actual_mode = "direct" if self.nfragments >= 30 else "filter"
+
         return {
             "mbe_term_counts": mbe_counts,
             "hmbe_term_counts": hmbe_counts,
@@ -288,6 +358,8 @@ class ManyBodyCore:
             "schengen_enabled": (
                 self.hmbe_spec.schengen.enabled if self.hmbe_spec.schengen else False
             ),
+            "enumeration_mode": enumeration_mode,
+            "actual_enumeration_mode": actual_mode,
         }
 
     def format_calc_plan(self, sset: str = "all") -> Tuple[str, Dict[str, Dict[int, int]]]:
