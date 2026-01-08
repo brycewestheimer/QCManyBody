@@ -329,8 +329,9 @@ class TestSchengenSelection:
             fragments=[[0], [1]],
         )
 
-        selected = select_schengen_terms(candidates, mol, spec)
+        selected, required_subs = select_schengen_terms(candidates, mol, spec)
         assert len(selected) == 0
+        assert len(required_subs) == 0
 
     def test_schengen_selection_fraction(self):
         """Test that Schengen respects selection_fraction."""
@@ -356,10 +357,13 @@ class TestSchengenSelection:
 
         # 10 candidates, 20% = 2 terms
         candidates = {tuple(range(1, 11))[i : i + 2] for i in range(8)}  # 8 candidates
-        selected = select_schengen_terms(candidates, mol, spec)
+        selected, required_subs = select_schengen_terms(candidates, mol, spec)
 
         expected_count = max(1, int(0.2 * len(candidates)))  # 20% of 8 = 1.6 -> 1
         assert len(selected) == expected_count
+        # required_subs should contain sub-clusters of selected terms
+        # For 2-body terms, each has 2 1-body sub-clusters
+        assert len(required_subs) > 0
 
     def test_compute_distance_metric_r2(self):
         """Test R2 distance metric calculation."""

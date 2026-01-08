@@ -221,11 +221,15 @@ class ManyBodyCore:
                                 base_compute_dict[bsse_key], filtered_dict[bsse_key], self.hmbe_spec
                             )
 
-                            # Select top fraction by distance metric
-                            schengen_terms = select_schengen_terms(candidates, self.molecule, self.hmbe_spec)
+                            # Select top fraction by distance metric + required sub-clusters
+                            schengen_terms, required_subs = select_schengen_terms(
+                                candidates, self.molecule, self.hmbe_spec
+                            )
 
-                            # Add Schengen terms to filtered dict
-                            for frag_tuple in schengen_terms:
+                            # Add BOTH Schengen terms AND their sub-clusters for completeness
+                            all_terms_to_add = schengen_terms | required_subs
+
+                            for frag_tuple in all_terms_to_add:
                                 nbody = len(frag_tuple)
                                 if nbody not in filtered_dict[bsse_key]:
                                     filtered_dict[bsse_key][nbody] = set()
@@ -234,6 +238,11 @@ class ManyBodyCore:
                                 for frag, bas in base_compute_dict[bsse_key].get(nbody, set()):
                                     if frag == frag_tuple:
                                         filtered_dict[bsse_key][nbody].add((frag, bas))
+
+                            logger.info(
+                                f"[{mc}] Added {len(schengen_terms)} Schengen terms + "
+                                f"{len(required_subs)} sub-clusters to {bsse_key}"
+                            )
 
                     self.mc_compute_dict[mc] = filtered_dict
 
@@ -258,11 +267,15 @@ class ManyBodyCore:
                                 base_compute_dict[bsse_key], filtered_dict[bsse_key], self.hmbe_spec
                             )
 
-                            # Select top fraction by distance metric
-                            schengen_terms = select_schengen_terms(candidates, self.molecule, self.hmbe_spec)
+                            # Select top fraction by distance metric + required sub-clusters
+                            schengen_terms, required_subs = select_schengen_terms(
+                                candidates, self.molecule, self.hmbe_spec
+                            )
 
-                            # Add Schengen terms to filtered dict
-                            for frag_tuple in schengen_terms:
+                            # Add BOTH Schengen terms AND their sub-clusters for completeness
+                            all_terms_to_add = schengen_terms | required_subs
+
+                            for frag_tuple in all_terms_to_add:
                                 nbody = len(frag_tuple)
                                 if nbody not in filtered_dict[bsse_key]:
                                     filtered_dict[bsse_key][nbody] = set()
@@ -271,6 +284,11 @@ class ManyBodyCore:
                                 for frag, bas in base_compute_dict[bsse_key].get(nbody, set()):
                                     if frag == frag_tuple:
                                         filtered_dict[bsse_key][nbody].add((frag, bas))
+
+                            logger.info(
+                                f"[{mc}] Added {len(schengen_terms)} Schengen terms + "
+                                f"{len(required_subs)} sub-clusters to {bsse_key}"
+                            )
 
                     self.mc_compute_dict[mc] = filtered_dict
             else:
@@ -694,6 +712,75 @@ class ManyBodyCore:
 
         return results
 
+    def _validate_hmbe_completeness(
+        self,
+        fragment_tuples: Set[Tuple[int, ...]],
+        mc_level: str,
+        bsse_type: str,
+    ) -> None:
+        """Validate that cluster set satisfies completeness requirement for Möbius inversion.
+
+        Möbius inversion is mathematically exact ONLY when every cluster has all its
+        proper sub-clusters present. This function enforces that requirement.
+
+        Parameters
+        ----------
+        fragment_tuples : Set[Tuple[int, ...]]
+            All fragment tuples with computed results
+        mc_level : str
+            Model chemistry level (for error reporting)
+        bsse_type : str
+            BSSE type ("nocp", "cp") for error reporting
+
+        Raises
+        ------
+        RuntimeError
+            If any cluster is missing required sub-clusters. This indicates a bug
+            in HMBE filtering, Schengen sub-cluster addition, or direct enumeration.
+
+        Notes
+        -----
+        This check should NEVER fail in production. If it does, it's a QCManyBody bug.
+        """
+        from itertools import combinations
+
+        missing = []
+
+        for frag_tuple in fragment_tuples:
+            n = len(frag_tuple)
+            if n == 1:
+                continue  # Monomers have no sub-clusters
+
+            # Check all proper sub-clusters (size 1 to n-1)
+            for sub_size in range(1, n):
+                for sub_cluster in combinations(frag_tuple, sub_size):
+                    if sub_cluster not in fragment_tuples:
+                        missing.append((frag_tuple, sub_cluster))
+
+        if missing:
+            error_msg = (
+                f"HMBE completeness violation in {mc_level}/{bsse_type}:\n"
+                f"Found {len(missing)} clusters missing required sub-clusters.\n"
+                f"This violates the mathematical requirement for Möbius inversion.\n"
+                f"\n"
+                f"First 5 violations:\n"
+            )
+            for cluster, missing_sub in missing[:5]:
+                error_msg += f"  Cluster {cluster} missing sub-cluster {missing_sub}\n"
+
+            error_msg += (
+                f"\n"
+                f"This is a bug in QCManyBody. Please report this issue.\n"
+                f"Likely causes: Schengen sub-cluster addition failed, or HMBE filtering bug."
+            )
+
+            raise RuntimeError(error_msg)
+
+        logger.debug(
+            f"HMBE completeness validated for {mc_level}/{bsse_type}: "
+            f"{len(fragment_tuples)} clusters OK"
+        )
+
     def _assemble_nbody_components_hmbe(
         self,
         property_label: str,
@@ -701,14 +788,45 @@ class ManyBodyCore:
     ) -> Dict[str, Any]:
         """Assemble N-body results when HMBE truncation is active.
 
-        The compute map may omit many combinatorial terms, so we cannot apply the usual
-        closed-form inclusion–exclusion coefficients (which assume full coverage of all
-        fragment combinations). Instead we perform an explicit Möbius inversion over the
-        enumerated fragment tuples: for each cluster, subtract all previously computed
-        sub-cluster contributions and accumulate the residual as that cluster's n-body
-        contribution. This works for any sparsely enumerated set of clusters as long as
-        all sub-clusters of an included cluster are also present (true for the current
-        HMBE filters).
+        Uses Möbius inversion over the enumerated fragment tuples. This is
+        mathematically EXACT (not approximate) provided the completeness
+        requirement is satisfied.
+
+        Mathematical Foundation
+        -----------------------
+        For cluster C with computed energy E_total[C], its n-body contribution is:
+
+            E_contrib[C] = E_total[C] - Σ_{S ⊂ C, S ≠ C} E_contrib[S]
+
+        This is the Möbius function on the subset lattice. CRITICAL REQUIREMENT:
+        All proper subsets S of C must be present (computed) for this to be exact.
+
+        Completeness Enforcement
+        ------------------------
+        The completeness requirement is ENFORCED by:
+        1. Base HMBE filtering: Guarantees completeness by construction
+           (if C passes filter, all subsets pass filter due to hierarchical structure)
+        2. Schengen sub-cluster addition: When Schengen adds C, automatically adds
+           all required sub-clusters
+        3. Validation: _validate_hmbe_completeness() catches any bugs
+
+        Why Standard MBE Assembly Fails for HMBE
+        -----------------------------------------
+        Standard MBE uses inclusion-exclusion coefficients math.comb(N-k-1, n-k)
+        that assume ALL C(N,k) combinations exist. When HMBE filters terms, these
+        coefficients overcount missing terms, causing exploding higher-order energies.
+
+        Parameters
+        ----------
+        property_label : str
+            Property to assemble ("energy", "gradient", "hessian")
+        component_results : Dict[str, Union[float, np.ndarray]]
+            Computed results keyed by labeler(mc, frag, bas)
+
+        Returns
+        -------
+        Dict[str, Any]
+            Assembled n-body results with body_dict and ret_<property>
         """
 
         # Determine model chemistry for this batch of results
@@ -757,6 +875,10 @@ class ManyBodyCore:
                     lbl = labeler(mc_level, frag, bas)
                     if lbl in component_results:
                         energy_by_frag[frag] = component_results[lbl]
+
+            # VALIDATE COMPLETENESS (catches bugs in sub-cluster addition)
+            fragment_tuples = set(energy_by_frag.keys())
+            self._validate_hmbe_completeness(fragment_tuples, mc_level, bt_key)
 
             # Explicit Möbius inversion over available fragments
             contrib_by_frag: Dict[Tuple[int, ...], Any] = {}

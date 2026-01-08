@@ -14,6 +14,7 @@ from .models.hierarchy import HMBESpecification
 __all__ = [
     "passes_hmbe_filter",
     "filter_compute_list",
+    "generate_all_subclusters",
     "get_schengen_candidates",
     "select_schengen_terms",
     "compute_distance_metric",
@@ -116,6 +117,48 @@ def filter_compute_list(
     return filtered
 
 
+def generate_all_subclusters(
+    fragment_tuples: Set[Tuple[int, ...]]
+) -> Set[Tuple[int, ...]]:
+    """Generate all sub-clusters for a set of fragment tuples.
+
+    Given fragment tuples, returns the closure under the subset operation:
+    all tuples plus all their proper sub-clusters.
+
+    Required for mathematical correctness of Möbius inversion in HMBE.
+
+    Parameters
+    ----------
+    fragment_tuples : Set[Tuple[int, ...]]
+        Set of fragment tuples
+
+    Returns
+    -------
+    Set[Tuple[int, ...]]
+        Original tuples plus all their sub-clusters
+
+    Examples
+    --------
+    >>> generate_all_subclusters({(1,2,3)})
+    {(1,), (2,), (3,), (1,2), (1,3), (2,3), (1,2,3)}
+
+    >>> generate_all_subclusters({(1,5,9), (2,3)})
+    {(1,), (2,), (3,), (5,), (9,), (1,5), (1,9), (5,9), (1,5,9), (2,3)}
+    """
+    from itertools import combinations
+
+    result = set(fragment_tuples)
+
+    for frag_tuple in fragment_tuples:
+        n = len(frag_tuple)
+        # Add all proper sub-clusters
+        for sub_size in range(1, n):
+            for sub_cluster in combinations(frag_tuple, sub_size):
+                result.add(sub_cluster)
+
+    return result
+
+
 def get_schengen_candidates(
     compute_list: Dict[int, Set[Tuple[Tuple[int, ...], Tuple[int, ...]]]],
     base_hmbe_list: Dict[int, Set[Tuple[Tuple[int, ...], Tuple[int, ...]]]],
@@ -169,13 +212,17 @@ def select_schengen_terms(
     candidates: Set[Tuple[int, ...]],
     molecule,  # qcelemental.Molecule
     hmbe_spec: "HMBESpecification",
-) -> Set[Tuple[int, ...]]:
+) -> Tuple[Set[Tuple[int, ...]], Set[Tuple[int, ...]]]:
     """
-    Select top Schengen terms based on spatial proximity metric.
+    Select top Schengen terms and compute required sub-clusters.
 
     From the set of candidate Schengen terms (excluded by HMBE truncation),
     select the top fraction based on a distance metric. Terms with smaller
     metric values (closer fragments) are selected first.
+
+    For mathematical correctness of Möbius inversion, ALL sub-clusters of
+    selected Schengen terms must be present. This function returns both the
+    selected terms AND all necessary sub-clusters.
 
     Parameters
     ----------
@@ -188,19 +235,26 @@ def select_schengen_terms(
 
     Returns
     -------
-    Set[Tuple[int, ...]]
-        Selected Schengen terms (top fraction by distance metric)
+    Tuple[Set[Tuple[int, ...]], Set[Tuple[int, ...]]]
+        (selected_schengen_terms, required_subclusters)
+        - selected_schengen_terms: Top fraction by distance metric
+        - required_subclusters: All sub-clusters needed for completeness
 
     Notes
     -----
-    If Schengen is disabled in hmbe_spec, returns empty set.
+    If Schengen is disabled in hmbe_spec, returns (empty_set, empty_set).
     Selection is based on center-of-mass distances between fragments.
+
+    Example: If (1,5,9) is selected, required_subclusters includes:
+    (1), (5), (9), (1,5), (1,9), (5,9)
+
+    The sub-clusters are REQUIRED for mathematical correctness, not optional.
     """
     if not hmbe_spec.schengen or not hmbe_spec.schengen.enabled:
-        return set()
+        return set(), set()
 
     if not candidates:
-        return set()
+        return set(), set()
 
     # Compute distance metric for each candidate
     distances = {}
@@ -213,7 +267,26 @@ def select_schengen_terms(
     sorted_candidates = sorted(distances.items(), key=lambda x: x[1])
     selected = {frag for frag, _ in sorted_candidates[:n_select]}
 
-    return selected
+    # Generate ALL required sub-clusters for mathematical completeness
+    import logging
+    from itertools import combinations
+
+    logger = logging.getLogger(__name__)
+    required_subclusters = set()
+
+    for frag_tuple in selected:
+        n = len(frag_tuple)
+        # Add all proper sub-clusters (size 1 to n-1)
+        for sub_size in range(1, n):
+            for sub_cluster in combinations(frag_tuple, sub_size):
+                required_subclusters.add(sub_cluster)
+
+    logger.info(
+        f"Selected {len(selected)} Schengen terms, "
+        f"requiring {len(required_subclusters)} sub-clusters for completeness"
+    )
+
+    return selected, required_subclusters
 
 
 def compute_distance_metric(
