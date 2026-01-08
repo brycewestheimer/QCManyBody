@@ -20,7 +20,7 @@ The QCManyBody command-line interface (CLI) provides a user-friendly way to run 
 
 - **Simple input format**: Human-readable JSON or YAML files
 - **Four core commands**: `run`, `plan`, `validate`, `convert`
-- **Multiple output formats**: JSON, YAML, or text summary
+- **Multiple output formats**: JSON, YAML, or text summary (`--format text` for a concise pretty print)
 - **No code required**: Perfect for scripting and batch processing
 - **Comprehensive validation**: Catch errors before computation starts
 
@@ -123,7 +123,14 @@ qcmanybody plan water_dimer.json
 ### 4. Run the Calculation
 
 ```bash
+# Positional input (backward compatible)
 qcmanybody run water_dimer.json -o results.json
+
+# Or explicit input flag (overrides positional if both given)
+qcmanybody run -i water_dimer.json -o results.json
+
+# Pretty text summary instead of JSON
+qcmanybody run -i water_dimer.json --format text -o results.txt
 ```
 
 ---
@@ -137,11 +144,14 @@ Execute a many-body calculation.
 **Usage:**
 ```bash
 qcmanybody run <input-file> [options]
+# or
+qcmanybody run --input <input-file> [options]
 ```
 
 **Options:**
+- `-i, --input FILE`: Input file path (overrides positional if both are provided)
 - `-o, --output FILE`: Write output to file (default: stdout)
-- `--format {json,yaml,text}`: Output format (default: json)
+- `--format {json,yaml,text}`: Output format (default: json; `text` gives a concise pretty print summary)
 - `--log FILE`: Write log messages to file
 
 **Examples:**
@@ -149,8 +159,8 @@ qcmanybody run <input-file> [options]
 # Run with JSON output
 qcmanybody run input.json -o results.json
 
-# Run with text summary
-qcmanybody run input.yaml --format text
+# Run with text summary (pretty print)
+qcmanybody run -i input.yaml --format text -o results.txt
 
 # Run with logging
 qcmanybody run input.json --log calculation.log

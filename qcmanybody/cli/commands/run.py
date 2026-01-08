@@ -5,6 +5,7 @@ Executes a many-body expansion calculation from an input file.
 """
 
 import json
+from pydantic.json import pydantic_encoder
 import logging
 from argparse import Namespace
 from pathlib import Path
@@ -249,13 +250,22 @@ def format_output(result: Any, cli_input: Any, output_format: str) -> str:
 
 def format_json(result: Any, cli_input: Any) -> str:
     """Format output as JSON."""
-    # Convert result to dictionary
+    # Use pydantic's JSON serialization to normalize any numpy/chararray fields
+    input_payload = json.loads(cli_input.json()) if hasattr(cli_input, "json") else cli_input.dict()
+    if hasattr(result, "json"):
+        results_payload = json.loads(result.json())
+    elif hasattr(result, "dict"):
+        results_payload = result.dict()
+    else:
+        results_payload = str(result)
+
     output = {
         "schema_version": "1.0",
-        "input": cli_input.dict(),
-        "results": result.dict() if hasattr(result, "dict") else str(result),
+        "input": input_payload,
+        "results": results_payload,
     }
-    return json.dumps(output, indent=2)
+    # pydantic_encoder is retained as a fallback for any remaining exotic types
+    return json.dumps(output, indent=2, default=pydantic_encoder)
 
 
 def format_yaml(result: Any, cli_input: Any) -> str:
@@ -266,12 +276,20 @@ def format_yaml(result: Any, cli_input: Any) -> str:
         logger.warning("PyYAML not installed, falling back to JSON format")
         return format_json(result, cli_input)
 
+    input_payload = json.loads(cli_input.json()) if hasattr(cli_input, "json") else cli_input.dict()
+    if hasattr(result, "json"):
+        results_payload = json.loads(result.json())
+    elif hasattr(result, "dict"):
+        results_payload = result.dict()
+    else:
+        results_payload = str(result)
+
     output = {
         "schema_version": "1.0",
-        "input": cli_input.dict(),
-        "results": result.dict() if hasattr(result, "dict") else str(result),
+        "input": input_payload,
+        "results": results_payload,
     }
-    return yaml.dump(output, default_flow_style=False, sort_keys=False)
+    return yaml.dump(json.loads(json.dumps(output, default=pydantic_encoder)), default_flow_style=False, sort_keys=False)
 
 
 def format_text(result: Any, cli_input: Any) -> str:
@@ -328,9 +346,49 @@ def format_text(result: Any, cli_input: Any) -> str:
     lines.append("")
 
     # Results summary
+    res_dict = result.dict() if hasattr(result, "dict") else {}
+    props = res_dict.get("properties", {}) if isinstance(res_dict, dict) else {}
+
     lines.append("Results:")
     lines.append("-" * 70)
-    lines.append(f"{result}")
+
+    def add_prop(key: str, label: str):
+        if key in props:
+            val = props[key]
+            try:
+                lines.append(f"  {label}: {val:.12f} Eh")
+            except Exception:
+                lines.append(f"  {label}: {val}")
+
+    add_prop("return_energy", "Return energy")
+    add_prop("nocp_corrected_total_energy", "Total energy (NoCP)")
+    add_prop("nocp_corrected_interaction_energy", "Interaction energy (NoCP)")
+    add_prop("nocp_corrected_total_energy_through_1_body", "Total through 1-body")
+    add_prop("nocp_corrected_total_energy_through_2_body", "Total through 2-body")
+    add_prop("nocp_corrected_total_energy_through_3_body", "Total through 3-body")
+    add_prop("nocp_corrected_2_body_contribution_to_energy", "2-body contribution")
+    add_prop("nocp_corrected_3_body_contribution_to_energy", "3-body contribution")
+
+    hmbe_meta = props.get("hmbe_metadata", {}) if isinstance(props, dict) else {}
+    if hmbe_meta:
+        lines.append("")
+        lines.append("  HMBE:")
+        trunc = hmbe_meta.get("truncation_orders")
+        if trunc:
+            lines.append(f"    truncation_orders: {tuple(trunc)}")
+        tf = hmbe_meta.get("reduction_factors", {})
+        if tf:
+            for mc, rf in tf.items():
+                lines.append(f"    reduction_factor [{mc}]: {rf}")
+        term_counts = hmbe_meta.get("hmbe_term_counts", {})
+        base_counts = hmbe_meta.get("mbe_term_counts", {})
+        for mc, cnt in term_counts.items():
+            base = base_counts.get(mc, "?")
+            lines.append(f"    hmbe_terms [{mc}]: {cnt} (base MBE: {base})")
+
+    if not props:
+        lines.append("  (No result properties available)")
+
     lines.append("")
 
     lines.append("=" * 70)

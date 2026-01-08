@@ -1,0 +1,663 @@
+{
+  "schema_version": "1.0",
+  "input": {
+    "schema_name": "qcmanybody_cli_input",
+    "schema_version": 1,
+    "molecule": {
+      "source": "inline",
+      "inline": {
+        "symbols": [
+          "O",
+          "H",
+          "H",
+          "O",
+          "H",
+          "H",
+          "O",
+          "H",
+          "H",
+          "O",
+          "H",
+          "H",
+          "O",
+          "H",
+          "H",
+          "O",
+          "H",
+          "H"
+        ],
+        "geometry": [
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.757,
+            0.587
+          ],
+          [
+            0.0,
+            -0.757,
+            0.587
+          ],
+          [
+            3.0,
+            0.0,
+            0.0
+          ],
+          [
+            3.0,
+            0.757,
+            0.587
+          ],
+          [
+            3.0,
+            -0.757,
+            0.587
+          ],
+          [
+            0.0,
+            3.0,
+            0.0
+          ],
+          [
+            0.0,
+            3.757,
+            0.587
+          ],
+          [
+            0.0,
+            2.243,
+            0.587
+          ],
+          [
+            3.0,
+            3.0,
+            0.0
+          ],
+          [
+            3.0,
+            3.757,
+            0.587
+          ],
+          [
+            3.0,
+            2.243,
+            0.587
+          ],
+          [
+            0.0,
+            6.0,
+            0.0
+          ],
+          [
+            0.0,
+            6.757,
+            0.587
+          ],
+          [
+            0.0,
+            5.243,
+            0.587
+          ],
+          [
+            3.0,
+            6.0,
+            0.0
+          ],
+          [
+            3.0,
+            6.757,
+            0.587
+          ],
+          [
+            3.0,
+            5.243,
+            0.587
+          ]
+        ],
+        "fragments": [
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            3,
+            4,
+            5
+          ],
+          [
+            6,
+            7,
+            8
+          ],
+          [
+            9,
+            10,
+            11
+          ],
+          [
+            12,
+            13,
+            14
+          ],
+          [
+            15,
+            16,
+            17
+          ]
+        ],
+        "molecular_charge": 0.0,
+        "molecular_multiplicity": 1,
+        "units": "angstrom",
+        "fragment_charges": null,
+        "fragment_multiplicities": null
+      },
+      "file": null,
+      "fragments": null
+    },
+    "calculation": {
+      "type": "single",
+      "single": {
+        "driver": "energy",
+        "method": "mp2",
+        "basis": "cc-pvdz",
+        "program": "psi4"
+      },
+      "multi": null
+    },
+    "bsse": {
+      "type": [
+        "nocp"
+      ]
+    },
+    "manybody": {
+      "max_nbody": 3,
+      "return_total_data": true,
+      "supersystem_ie_only": false,
+      "embedding_charges": null,
+      "hmbe": {
+        "truncation_orders": [
+          2,
+          3
+        ],
+        "hierarchy": {
+          "num_tiers": 2,
+          "fragment_tiers": {
+            "1": [
+              "G0",
+              "G0_S0"
+            ],
+            "2": [
+              "G0",
+              "G0_S1"
+            ],
+            "3": [
+              "G1",
+              "G1_S0"
+            ],
+            "4": [
+              "G1",
+              "G1_S1"
+            ],
+            "5": [
+              "G2",
+              "G2_S0"
+            ],
+            "6": [
+              "G2",
+              "G2_S1"
+            ]
+          },
+          "tier_names": [
+            "domain",
+            "water"
+          ]
+        },
+        "schengen": {
+          "enabled": true,
+          "selection_fraction": 0.1,
+          "distance_metric": "R2"
+        }
+      }
+    },
+    "program": {
+      "keywords": {}
+    },
+    "execution": {
+      "parallel": true,
+      "n_workers": 4,
+      "executor_type": "multiprocessing",
+      "timeout_per_task": 3600.0,
+      "max_retries": 2
+    },
+    "output": {
+      "format": "json",
+      "file": "hmbe_water6_results.json",
+      "pretty": true,
+      "include_timings": true
+    }
+  },
+  "results": {
+    "input_data": {
+      "schema_name": "qcschema_manybodyinput",
+      "schema_version": 1,
+      "specification": {
+        "schema_name": "qcschema_manybodyspecification",
+        "schema_version": 1,
+        "keywords": {
+          "schema_name": "qcschema_manybodykeywords",
+          "schema_version": 1,
+          "bsse_type": [
+            "nocp"
+          ],
+          "embedding_charges": null,
+          "return_total_data": true,
+          "levels": null,
+          "max_nbody": 3,
+          "supersystem_ie_only": false,
+          "hmbe_spec": {
+            "truncation_orders": [
+              2,
+              3
+            ],
+            "hierarchy": {
+              "num_tiers": 2,
+              "fragment_tiers": {
+                "1": [
+                  "G0",
+                  "G0_S0"
+                ],
+                "2": [
+                  "G0",
+                  "G0_S1"
+                ],
+                "3": [
+                  "G1",
+                  "G1_S0"
+                ],
+                "4": [
+                  "G1",
+                  "G1_S1"
+                ],
+                "5": [
+                  "G2",
+                  "G2_S0"
+                ],
+                "6": [
+                  "G2",
+                  "G2_S1"
+                ]
+              },
+              "tier_names": [
+                "domain",
+                "water"
+              ]
+            },
+            "schengen": {
+              "enabled": true,
+              "selection_fraction": 0.1,
+              "distance_metric": "R2"
+            },
+            "enumeration_mode": "auto"
+          }
+        },
+        "protocols": {
+          "component_results": "none"
+        },
+        "driver": "energy",
+        "specification": {
+          "(auto)": {
+            "keywords": {},
+            "program": "psi4",
+            "schema_name": "qcschema_atomicspecification",
+            "schema_version": 1,
+            "driver": "energy",
+            "model": {
+              "method": "mp2",
+              "basis": "cc-pvdz"
+            },
+            "protocols": {
+              "stdout": false
+            },
+            "extras": {}
+          }
+        },
+        "extras": {}
+      },
+      "molecule": {
+        "schema_name": "qcschema_molecule",
+        "schema_version": 2,
+        "validated": true,
+        "symbols": [
+          "O",
+          "H",
+          "H",
+          "O",
+          "H",
+          "H",
+          "O",
+          "H",
+          "H",
+          "O",
+          "H",
+          "H",
+          "O",
+          "H",
+          "H",
+          "O",
+          "H",
+          "H"
+        ],
+        "geometry": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.43052268,
+          1.10926924,
+          0.0,
+          -1.43052268,
+          1.10926924,
+          5.66917838,
+          0.0,
+          0.0,
+          5.66917838,
+          1.43052268,
+          1.10926924,
+          5.66917838,
+          -1.43052268,
+          1.10926924,
+          0.0,
+          5.66917838,
+          0.0,
+          0.0,
+          7.09970105,
+          1.10926924,
+          0.0,
+          4.2386557,
+          1.10926924,
+          5.66917838,
+          5.66917838,
+          0.0,
+          5.66917838,
+          7.09970105,
+          1.10926924,
+          5.66917838,
+          4.2386557,
+          1.10926924,
+          0.0,
+          11.33835675,
+          0.0,
+          0.0,
+          12.76887943,
+          1.10926924,
+          0.0,
+          9.90783408,
+          1.10926924,
+          5.66917838,
+          11.33835675,
+          0.0,
+          5.66917838,
+          12.76887943,
+          1.10926924,
+          5.66917838,
+          9.90783408,
+          1.10926924
+        ],
+        "name": "H12O6",
+        "molecular_charge": 0.0,
+        "molecular_multiplicity": 1,
+        "fragments": [
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            3,
+            4,
+            5
+          ],
+          [
+            6,
+            7,
+            8
+          ],
+          [
+            9,
+            10,
+            11
+          ],
+          [
+            12,
+            13,
+            14
+          ],
+          [
+            15,
+            16,
+            17
+          ]
+        ],
+        "fragment_charges": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "fragment_multiplicities": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "fix_com": false,
+        "fix_orientation": false,
+        "provenance": {
+          "creator": "QCElemental",
+          "version": "0.29.0",
+          "routine": "qcelemental.molparse.from_schema"
+        },
+        "extras": {}
+      },
+      "extras": {}
+    },
+    "success": true,
+    "stdout": "\n   ==> N-Body: Non-Counterpoise Corrected (NoCP) energies <==\n\n              MC n-Body  Total Energy            Interaction Energy                          N-body Contribution to Interaction Energy\n                         [Eh]                    [Eh]                  [kcal/mol]            [Eh]                  [kcal/mol]\n              \u00a7A  1     -457.384408687630        0.000000000000        0.000000000000        0.000000000000        0.000000000000\n              \u00a7A  2     -457.329996941944        0.054411745686       34.143885902576        0.054411745686       34.143885902576\n          RTN \u00a7A  3     -457.330653735440        0.053754952190       33.731741761499       -0.000656793496       -0.412144141077\n                  4        N/A                   N/A                   N/A                   N/A                   N/A                 \n                  5        N/A                   N/A                   N/A                   N/A                   N/A                 \n         FULL     6        N/A                   N/A                   N/A                   N/A                   N/A                 \n\n   MC Legend: \u00a7A: \"(auto)\"\n\n",
+    "stderr": null,
+    "schema_name": "qcschema_manybodyresult",
+    "schema_version": 1,
+    "id": null,
+    "extras": {},
+    "provenance": {
+      "creator": "QCManyBody",
+      "version": "0.5.2.dev48+g2a76a963a.d20260108",
+      "routine": "qcmanybody.computer"
+    },
+    "properties": {
+      "calcinfo_nmc": 1,
+      "calcinfo_nfr": 6,
+      "calcinfo_natom": 18,
+      "calcinfo_nmbe": 34,
+      "nuclear_repulsion_energy": 262.51997865155136,
+      "return_energy": -457.3306537354398,
+      "nocp_corrected_total_energy_through_1_body": -457.3844086876295,
+      "nocp_corrected_total_energy_through_2_body": -457.32999694194376,
+      "nocp_corrected_total_energy_through_3_body": -457.3306537354398,
+      "nocp_corrected_total_energy": -457.3306537354398,
+      "nocp_corrected_interaction_energy_through_1_body": 0.0,
+      "nocp_corrected_interaction_energy_through_2_body": 0.0544117456857407,
+      "nocp_corrected_interaction_energy_through_3_body": 0.05375495218970627,
+      "nocp_corrected_interaction_energy": 0.05375495218970627,
+      "nocp_corrected_2_body_contribution_to_energy": 0.0544117456857407,
+      "nocp_corrected_3_body_contribution_to_energy": -0.0006567934960344246,
+      "hmbe_metadata": {
+        "mbe_term_counts": {
+          "(auto)": 41
+        },
+        "hmbe_term_counts": {
+          "(auto)": 34
+        },
+        "reduction_factors": {
+          "(auto)": 1.2058823529411764
+        },
+        "truncation_orders": [
+          2,
+          3
+        ],
+        "num_tiers": 2,
+        "schengen_enabled": true,
+        "enumeration_mode": "auto",
+        "actual_enumeration_mode": "filter"
+      }
+    },
+    "component_properties": {
+      "[\"(auto)\", [4], [4]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -76.23073478195352
+      },
+      "[\"(auto)\", [1], [1]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -76.23073478094032
+      },
+      "[\"(auto)\", [3], [3]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -76.23073478092125
+      },
+      "[\"(auto)\", [2], [2]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -76.23073478093988
+      },
+      "[\"(auto)\", [5], [5]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -76.2307347809204
+      },
+      "[\"(auto)\", [6], [6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -76.23073478195414
+      },
+      "[\"(auto)\", [3, 4], [3, 4]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.45891404460937
+      },
+      "[\"(auto)\", [2, 3], [2, 3]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.46123837890215
+      },
+      "[\"(auto)\", [2, 6], [2, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.46092085602655
+      },
+      "[\"(auto)\", [5, 6], [5, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.45891404460568
+      },
+      "[\"(auto)\", [1, 6], [1, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.4611664951738
+      },
+      "[\"(auto)\", [1, 4], [1, 4]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.4612383789012
+      },
+      "[\"(auto)\", [3, 5], [3, 5]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.45044033509967
+      },
+      "[\"(auto)\", [3, 6], [3, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.46123837885614
+      },
+      "[\"(auto)\", [1, 2], [1, 2]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.4589140446514
+      },
+      "[\"(auto)\", [1, 5], [1, 5]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.4609208560111
+      },
+      "[\"(auto)\", [4, 5], [4, 5]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.46123837885526
+      },
+      "[\"(auto)\", [4, 6], [4, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.45044033536735
+      },
+      "[\"(auto)\", [1, 3], [1, 3]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.4504403349836
+      },
+      "[\"(auto)\", [2, 4], [2, 4]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.45044033524604
+      },
+      "[\"(auto)\", [2, 5], [2, 5]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -152.4611664951725
+      },
+      "[\"(auto)\", [3, 5, 6], [3, 5, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.6784390192025
+      },
+      "[\"(auto)\", [1, 3, 5], [1, 3, 5]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.66973092383515
+      },
+      "[\"(auto)\", [4, 5, 6], [4, 5, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.67843901919747
+      },
+      "[\"(auto)\", [3, 4, 5], [3, 4, 5]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.6784390191912
+      },
+      "[\"(auto)\", [1, 2, 3], [1, 2, 3]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.6784390191019
+      },
+      "[\"(auto)\", [1, 2, 5], [1, 2, 5]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.6888266066686
+      },
+      "[\"(auto)\", [2, 3, 4], [2, 3, 4]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.67843901909464
+      },
+      "[\"(auto)\", [1, 5, 6], [1, 5, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.68882660665378
+      },
+      "[\"(auto)\", [2, 5, 6], [2, 5, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.68882660666628
+      },
+      "[\"(auto)\", [1, 2, 6], [1, 2, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.6888266066724
+      },
+      "[\"(auto)\", [1, 3, 4], [1, 3, 4]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.6784390190996
+      },
+      "[\"(auto)\", [1, 2, 4], [1, 2, 4]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.678439019103
+      },
+      "[\"(auto)\", [3, 4, 6], [3, 4, 6]]": {
+        "calcinfo_natom": 18,
+        "return_energy": -228.6784390192014
+      }
+    },
+    "component_results": {},
+    "return_result": -457.3306537354398
+  }
+}

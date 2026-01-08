@@ -46,12 +46,12 @@
   },
 
   "bsse": {
-    "type": ["cp"]
+    "type": ["nocp"]
   },
 
   "manybody": {
     "max_nbody": 3,
-    "return_total_data": false,
+    "return_total_data": true,
     "supersystem_ie_only": false,
     "hmbe": {
       "truncation_orders": [2, 3],

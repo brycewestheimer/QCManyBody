@@ -15,5 +15,7 @@ except (ModuleNotFoundError, ImportError):
     pass
 
 from .v1 import *
+from . import hierarchy
+from .hierarchy import *
 
 # Note that changing .v1 as default requires changing the shim classes in this dir, too.

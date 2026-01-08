@@ -546,6 +546,14 @@ class ManyBodyCore:
         into interaction quantities according to requested BSSE treatment(s).
         """
 
+        # When HMBE filtering is active, the MBE job list is no longer the full combinatorial
+        # set. The standard inclusion–exclusion coefficients derived for complete MBE coverage
+        # therefore overcount missing higher-order terms and can explode (e.g., huge 3-body
+        # contributions). For HMBE we instead do a per-fragment Möbius inversion over the
+        # actually enumerated clusters, summing contributions bottom-up.
+        if self.hmbe_spec is not None:
+            return self._assemble_nbody_components_hmbe(property_label, component_results)
+
         # which level are we assembling?
         delabeled = [delabeler(k) for k in component_results.keys()]
         mc_level_labels = {x[0] for x in delabeled}
@@ -610,11 +618,14 @@ class ManyBodyCore:
         nocp_compute_list = {nb: set() for nb in range(1, nbodies[-1] + 1)}
 
         for nb in nbodies:
-            for v in compute_dict["cp"][nb]:
-                if len(v[1]) != 1:
-                    cp_compute_list[len(v[0])].add(v)
-            for w in compute_dict["nocp"][nb]:
-                nocp_compute_list[len(w[0])].add(w)
+            # HMBE filtering may omit certain nbody levels from compute_dict
+            if nb in compute_dict["cp"]:
+                for v in compute_dict["cp"][nb]:
+                    if len(v[1]) != 1:
+                        cp_compute_list[len(v[0])].add(v)
+            if nb in compute_dict["nocp"]:
+                for w in compute_dict["nocp"][nb]:
+                    nocp_compute_list[len(w[0])].add(w)
 
         for nb in range(1, nbodies[-1] + 1):
             cp_by_level[nb] = sum_cluster_data(component_results, cp_compute_list[nb], mc_level)
@@ -625,7 +636,7 @@ class ManyBodyCore:
                 )
 
         # Extract data for monomers in monomer basis for CP total data
-        if 1 in nbodies:
+        if 1 in nbodies and 1 in compute_dict["nocp"]:
             monomers_in_monomer_basis = [v for v in compute_dict["nocp"][1] if len(v[1]) == 1]
             monomer_sum = sum_cluster_data(component_results, set(monomers_in_monomer_basis), mc_level)
         else:
@@ -676,6 +687,108 @@ class ManyBodyCore:
 
         # Overall return body dict & value for this property
         results[f"{property_label}_body_dict"] = results[f"{return_bsse_type.value}_{property_label}_body_dict"]
+        results[f"ret_{property_label}"] = copy_value(results[f"{property_label}_body_dict"][max_nbody])
+
+        if not self.return_total_data:
+            results[f"ret_{property_label}"] -= results[f"{property_label}_body_dict"][1]
+
+        return results
+
+    def _assemble_nbody_components_hmbe(
+        self,
+        property_label: str,
+        component_results: Dict[str, Union[float, np.ndarray]],
+    ) -> Dict[str, Any]:
+        """Assemble N-body results when HMBE truncation is active.
+
+        The compute map may omit many combinatorial terms, so we cannot apply the usual
+        closed-form inclusion–exclusion coefficients (which assume full coverage of all
+        fragment combinations). Instead we perform an explicit Möbius inversion over the
+        enumerated fragment tuples: for each cluster, subtract all previously computed
+        sub-cluster contributions and accumulate the residual as that cluster's n-body
+        contribution. This works for any sparsely enumerated set of clusters as long as
+        all sub-clusters of an included cluster are also present (true for the current
+        HMBE filters).
+        """
+
+        # Determine model chemistry for this batch of results
+        delabeled = [delabeler(k) for k in component_results.keys()]
+        mc_level_labels = {x[0] for x in delabeled}
+
+        if len(mc_level_labels) != 1:
+            raise RuntimeError(f"Multiple model chemistries passed into _assemble_nbody_components_hmbe: {mc_level_labels}")
+
+        mc_level = mc_level_labels.pop()
+        if mc_level not in self.mc_levels:
+            raise RuntimeError(f"Model chemistry {mc_level} not found in {self.mc_levels}")
+
+        compute_dict = self.compute_map[mc_level]
+
+        # All values must share shape
+        if not all_same_shape(component_results.values()):
+            raise ValueError("All values in data dictionary must have the same shape.")
+
+        first_key = next(iter(component_results.keys()))
+        property_shape = find_shape(component_results[first_key])
+
+        max_nbody = max([n for n in self.nbodies_per_mc_level[mc_level] if n != "supersystem"], default=0)
+
+        def zero():
+            return shaped_zero(property_shape)
+
+        results: Dict[str, Any] = {}
+
+        # Currently only nocp/cp are supported for HMBE. VMFC would require bespoke handling.
+        if BsseEnum.vmfc in self.bsse_type:
+            raise NotImplementedError("VMFC with HMBE is not supported yet.")
+
+        for bt in self.bsse_type:
+            bt_key = bt.value
+            contribution_by_level = {n: zero() for n in range(1, max_nbody + 1)}
+
+            # Map fragment tuple -> total property for this bsse type
+            energy_by_frag: Dict[Tuple[int, ...], Any] = {}
+            subdict_key = bt_key if bt_key in compute_dict else None
+            if subdict_key is None:
+                continue
+
+            for nbody, terms in compute_dict[subdict_key].items():
+                for frag, bas in terms:
+                    lbl = labeler(mc_level, frag, bas)
+                    if lbl in component_results:
+                        energy_by_frag[frag] = component_results[lbl]
+
+            # Explicit Möbius inversion over available fragments
+            contrib_by_frag: Dict[Tuple[int, ...], Any] = {}
+            for n in range(1, max_nbody + 1):
+                # Sort for determinism
+                frags_of_size = sorted([f for f in energy_by_frag if len(f) == n])
+                for frag in frags_of_size:
+                    subtotal = copy_value(energy_by_frag[frag])
+
+                    # Subtract contributions from all proper subsets we've already computed
+                    for sub_frag, sub_contrib in contrib_by_frag.items():
+                        if len(sub_frag) >= n:
+                            continue
+                        if set(sub_frag).issubset(frag):
+                            subtotal -= sub_contrib
+
+                    contrib_by_frag[frag] = subtotal
+                    contribution_by_level[n] += subtotal
+
+            # Build cumulative body dict (through-n values)
+            body_dict: Dict[int, Any] = {}
+            running = zero()
+            for n in range(1, max_nbody + 1):
+                running += contribution_by_level.get(n, zero())
+                body_dict[n] = copy_value(running)
+
+            results[f"{bt_key}_{property_label}_body_dict"] = body_dict
+
+        # Overall return body dict & value for this property
+        results[f"{property_label}_body_dict"] = results[
+            f"{self.return_bsse_type.value}_{property_label}_body_dict"
+        ]
         results[f"ret_{property_label}"] = copy_value(results[f"{property_label}_body_dict"][max_nbody])
 
         if not self.return_total_data:

@@ -100,8 +100,19 @@ For more information, visit: https://github.com/MolSSI/QCManyBody
         help="Run a QCManyBody calculation",
         description="Execute a many-body expansion calculation from an input file",
     )
+    # Input/output paths (positional retained for backward compatibility)
     run_parser.add_argument("input", help="Input file path (JSON or YAML)")
-    run_parser.add_argument("-o", "--output", help="Output file path (defaults to schema setting or stdout)")
+    run_parser.add_argument(
+        "-i",
+        "--input",
+        dest="input",
+        help="Input file path (JSON or YAML). Overrides positional if both are provided.",
+    )
+    run_parser.add_argument(
+        "-o",
+        "--output",
+        help="Output file path (defaults to schema setting or stdout)",
+    )
     run_parser.add_argument(
         "--format",
         choices=["json", "yaml", "text"],
