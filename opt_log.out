@@ -1,0 +1,262 @@
+[WARNING]: Some dependencies such as QCElemental have not yet finished migration to pydantic v2. If issues are encountered please downgrade pydantic or upgrade QCElemental as appropriate
+[INFO]: 
+    			-----------------------------------------
+
+    			 OPTKING 3.0: for geometry optimizations 
+
+    			     By R.A. King, Bethel University     
+
+    			        with contributions from          
+
+    			    A.V. Copan, J. Cayton, A. Heide      
+
+    			-----------------------------------------
+
+    
+[INFO]: 
+		 -- Optimization Parameters --
+	GEOM_MAXITER                   =              50
+	ALG_GEOM_MAXITER               =              50
+	PRINT                          =               1
+	OPT_TYPE                       =             MIN
+	STEP_TYPE                      =             RFO
+	PROGRAM                        =            PSI4
+	STEEPEST_DESCENT_TYPE          =         OVERLAP
+	CONJUGATE_GRADIENT_TYPE        =        FLETCHER
+	OPT_COORDINATES                =        INTERNAL
+	RFO_FOLLOW_ROOT                =           False
+	RFO_ROOT                       =               0
+	ACCEPT_SYMMETRY_BREAKING       =           False
+	DYNAMIC_LVL                    =               0
+	DYNAMIC_LVL_MAX                =               0
+	IRC_STEP_SIZE                  =             0.2
+	IRC_DIRECTION                  =         FORWARD
+	IRC_POINTS                     =              20
+	IRC_MODE                       =          NORMAL
+	IRC_CONVERGENCE                =            -0.7
+	INTRAFRAG_STEP_LIMIT           =             0.5
+	INTRAFRAG_STEP_LIMIT_MIN       =           0.001
+	INTRAFRAG_STEP_LIMIT_MAX       =             1.0
+	INTERFRAG_STEP_LIMIT           =             0.5
+	INTERFRAG_STEP_LIMIT_MIN       =           0.001
+	INTERFRAG_STEP_LIMIT_MAX       =             1.0
+	ENSURE_BT_CONVERGENCE          =           False
+	SIMPLE_STEP_SCALING            =           False
+	CONSECUTIVE_BACKSTEPS          =               0
+	RFO_NORMALIZATION_MAX          =             100
+	RSRFO_ALPHA_MAX                =     100000000.0
+	PRINT_TRAJECTORY_XYZ_FILE      =           False
+	WRITE_TRAJECTORY               =           False
+	FROZEN_DISTANCE                =                
+	FROZEN_BEND                    =                
+	FROZEN_DIHEDRAL                =                
+	FROZEN_OOFP                    =                
+	FROZEN_CARTESIAN               =                
+	FREEZE_ALL_DIHEDRALS           =           False
+	UNFREEZE_DIHEDRALS             =                
+	RANGED_DISTANCE                =                
+	RANGED_BEND                    =                
+	RANGED_DIHEDRAL                =                
+	RANGED_OOFP                    =                
+	RANGED_CARTESIAN               =                
+	EXT_FORCE_DISTANCE             =                
+	EXT_FORCE_BEND                 =                
+	EXT_FORCE_DIHEDRAL             =                
+	EXT_FORCE_OOFP                 =                
+	EXT_FORCE_CARTESIAN            =                
+	G_CONVERGENCE                  =    NWCHEM_LOOSE
+	MAX_FORCE_G_CONVERGENCE        =          0.0045
+	RMS_FORCE_G_CONVERGENCE        =           0.003
+	MAX_ENERGY_G_CONVERGENCE       =           1e-06
+	MAX_DISP_G_CONVERGENCE         =          0.0054
+	RMS_DISP_G_CONVERGENCE         =          0.0036
+	FLEXIBLE_G_CONVERGENCE         =           False
+	HESS_UPDATE                    =            BFGS
+	HESS_UPDATE_USE_LAST           =               4
+	HESS_UPDATE_LIMIT              =            True
+	HESS_UPDATE_LIMIT_MAX          =             1.0
+	HESS_UPDATE_LIMIT_SCALE        =             0.5
+	HESS_UPDATE_DEN_TOL            =           1e-07
+	HESS_UPDATE_DQ_TOL             =             0.5
+	CART_HESS_READ                 =           False
+	HESSIAN_FILE                   =               .
+	FULL_HESS_EVERY                =              -1
+	INTRAFRAG_HESS                 =        SCHLEGEL
+	H_GUESS_EVERY                  =           False
+	BT_MAX_ITER                    =              25
+	BT_DX_CONV                     =           1e-07
+	BT_DX_RMS_CHANGE_CONV          =           1e-12
+	BT_PINV_RCOND                  =           1e-06
+	FRAG_MODE                      =          SINGLE
+	FRAG_REF_ATOMS                 =              []
+	FREEZE_INTRAFRAG               =           False
+	INTERFRAG_MODE                 =           FIXED
+	ADD_AUXILIARY_BONDS            =           False
+	AUXILIARY_BOND_FACTOR          =             2.5
+	INTERFRAG_DIST_INV             =           False
+	INTERFRAG_COLLINEAR_TOL        =            0.01
+	INTERFRAG_COORDS               =              []
+	INTERFRAG_HESS                 =         DEFAULT
+	COVALENT_CONNECT               =             1.3
+	INTERFRAGMENT_CONNECT          =             1.8
+	H_BOND_CONNECT                 =             4.3
+	INCLUDE_OOFP                   =           False
+	TEST_B                         =           False
+	TEST_DERIVATIVE_B              =           False
+	LINESEARCH_STEP                =             0.1
+	LINESEARCH                     =           False
+	SD_HESSIAN                     =             1.0
+	FIX_VAL_NEAR_PI                =            1.57
+	V3D_TORS_ANGLE_LIM             =           0.017
+	V3D_TORS_COS_TOL               =           1e-10
+	LINEAR_BEND_THRESHOLD          =            3.05
+	SMALL_BEND_FIX_THRESHOLD       =            0.35
+	REDUNDANT_EVAL_TOL             =           1e-10
+	LINEAR_ALGEBRA_TOL             =           1e-10
+
+
+[INFO]: 	Consolidating multiple fragments into one for optimization.
+[INFO]: 	Increasing scaling to  1.500 to connect fragments.
+[INFO]: 	Increasing scaling to  1.700 to connect fragments.
+[INFO]: 	Increasing scaling to  1.900 to connect fragments.
+[INFO]: 	Increasing scaling to  2.100 to connect fragments.
+[INFO]: 	Increasing scaling to  2.300 to connect fragments.
+[INFO]: 	Increasing scaling to  2.500 to connect fragments.
+[INFO]: 	Increasing scaling to  2.700 to connect fragments.
+[INFO]: 	Increasing scaling to  2.900 to connect fragments.
+[INFO]: 	Increasing scaling to  3.100 to connect fragments.
+[INFO]: 	Increasing scaling to  3.300 to connect fragments.
+[INFO]: 	Increasing scaling to  3.500 to connect fragments.
+[INFO]: 	Increasing scaling to  3.700 to connect fragments.
+[INFO]: 	Increasing scaling to  3.900 to connect fragments.
+[INFO]: 	Increasing scaling to  4.100 to connect fragments.
+[INFO]: 	Increasing scaling to  4.300 to connect fragments.
+[INFO]: 	Increasing scaling to  4.500 to connect fragments.
+[INFO]: 	Increasing scaling to  4.700 to connect fragments.
+[INFO]: 	Connecting fragments with atoms 2 and 4
+[INFO]: 	Connecting fragments with atoms 2 and 6
+[INFO]: 	Connecting fragments with atoms 4 and 6
+[INFO]: 	All fragments are connected in connectivity matrix.
+[INFO]: 	Consolidating multiple fragments into one for optimization.
+[INFO]: 	Starting optimization algorithm.
+
+[INFO]:                        ----------------------------                       
+                               Taking A Step: Step Number 1                               
+                               ----------------------------                               
+[ERROR]: Traceback (most recent call last):
+  File "/home/westh/miniconda3/bin/psi4", line 232, in <module>
+    import psi4  # isort:skip
+    ^^^^^^^^^^^
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/psi4/__init__.py", line 71, in <module>
+    from . import core
+ImportError: /home/westh/miniconda3/lib/python3.13/site-packages/psi4/core.cpython-313-x86_64-linux-gnu.so: undefined symbol: __dkh_main_MOD_dkh
+
+[CRITICAL]: 	A non-optimization-specific error has occurred.
+
+[CRITICAL]: 	Resetting all optimization options for potential queued jobs.
+
+[ERROR]: Error Type:  <class 'qcengine.exceptions.UnknownError'>
+Traceback (most recent call last):
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/optking/optimize.py", line 70, in optimize
+    H, fq, energy = opt_object.start_step(H)
+                    ~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/optking/optimize.py", line 229, in start_step
+    H, g_q, g_x, E = get_pes_info(
+                     ~~~~~~~~~~~~^
+        H,
+        ^^
+    ...<5 lines>...
+        requirements,
+        ^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/optking/optimize.py", line 661, in get_pes_info
+    result = computer.compute(o_molsys.geom, driver=driver, return_full=False)
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/optking/compute_wrappers.py", line 92, in compute
+    ret = self._compute(driver)
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/optking/compute_wrappers.py", line 176, in _compute
+    ret = qcengine.compute(inp, self.program, True, task_config=task_config)
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/qcengine/compute.py", line 108, in compute
+    output_data = executor.compute(input_data, config)
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/qcengine/programs/psi4.py", line 292, in compute
+    raise UnknownError(error_message)
+qcengine.exceptions.UnknownError: Traceback (most recent call last):
+  File "/home/westh/miniconda3/bin/psi4", line 232, in <module>
+    import psi4  # isort:skip
+    ^^^^^^^^^^^
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/psi4/__init__.py", line 71, in <module>
+    from . import core
+ImportError: /home/westh/miniconda3/lib/python3.13/site-packages/psi4/core.cpython-313-x86_64-linux-gnu.so: undefined symbol: __dkh_main_MOD_dkh
+
+[ERROR]: Error caught:Traceback (most recent call last):
+  File "/home/westh/miniconda3/bin/psi4", line 232, in <module>
+    import psi4  # isort:skip
+    ^^^^^^^^^^^
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/psi4/__init__.py", line 71, in <module>
+    from . import core
+ImportError: /home/westh/miniconda3/lib/python3.13/site-packages/psi4/core.cpython-313-x86_64-linux-gnu.so: undefined symbol: __dkh_main_MOD_dkh
+Traceback (most recent call last):
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/optking/optimize.py", line 70, in optimize
+    H, fq, energy = opt_object.start_step(H)
+                    ~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/optking/optimize.py", line 229, in start_step
+    H, g_q, g_x, E = get_pes_info(
+                     ~~~~~~~~~~~~^
+        H,
+        ^^
+    ...<5 lines>...
+        requirements,
+        ^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/optking/optimize.py", line 661, in get_pes_info
+    result = computer.compute(o_molsys.geom, driver=driver, return_full=False)
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/optking/compute_wrappers.py", line 92, in compute
+    ret = self._compute(driver)
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/optking/compute_wrappers.py", line 176, in _compute
+    ret = qcengine.compute(inp, self.program, True, task_config=task_config)
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/qcengine/compute.py", line 108, in compute
+    output_data = executor.compute(input_data, config)
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/qcengine/programs/psi4.py", line 292, in compute
+    raise UnknownError(error_message)
+qcengine.exceptions.UnknownError: Traceback (most recent call last):
+  File "/home/westh/miniconda3/bin/psi4", line 232, in <module>
+    import psi4  # isort:skip
+    ^^^^^^^^^^^
+  File "/home/westh/miniconda3/lib/python3.13/site-packages/psi4/__init__.py", line 71, in <module>
+    from . import core
+ImportError: /home/westh/miniconda3/lib/python3.13/site-packages/psi4/core.cpython-313-x86_64-linux-gnu.so: undefined symbol: __dkh_main_MOD_dkh
+
+[INFO]: 	Dumping history: Warning last point not converged.
+ 
+	==> Optimization Summary <==
+
+        
+	Measures of convergence in internal coordinates in au. (Any backward steps not shown.)
+        
+	---------------------------------------------------------------------------------------------------------------  ~
+        
+	 Step         Total Energy             Delta E       MAX Force       RMS Force        MAX Disp        RMS Disp   ~
+        
+	---------------------------------------------------------------------------------------------------------------  ~
+        
+	----------------------------------------------------------------------------------------------------------------
+
+
+[INFO]: 	Optimization Finished
+
+	==> Optimization Summary <==
+
+        
+	Measures of convergence in internal coordinates in au. (Any backward steps not shown.)
+        
+	---------------------------------------------------------------------------------------------------------------  ~
+        
+	 Step         Total Energy             Delta E       MAX Force       RMS Force        MAX Disp        RMS Disp   ~
+        
+	---------------------------------------------------------------------------------------------------------------  ~
+        
+	----------------------------------------------------------------------------------------------------------------
+
+
+[INFO]: Preparing OptimizationResult
