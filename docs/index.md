@@ -59,6 +59,13 @@ For more information, see [Parallel Execution Guide](parallel_execution_guide.md
 8. [Parallel API Reference](parallel_api_reference.md) - Complete API documentation
 9. [Parallel Migration Guide](parallel_migration_guide.md) - Migrating existing code to use parallel execution
 
+### Hierarchical Many-Body Expansion (HMBE)
+
+10. [HMBE User Guide](HMBE_USER_GUIDE.md) - Complete guide to using HMBE for large systems
+11. [Migration to HMBE](MIGRATION_TO_HMBE.md) - Converting existing MBE calculations to HMBE
+
+**What is HMBE?** Hierarchical Many-Body Expansion reduces computational cost by 100-1000x for large systems (>20 fragments) by organizing fragments into hierarchical tiers. Essential for calculations on 50-100+ fragment systems that would be impossible with standard MBE.
+
 ## [Changelog](changelog.md)
 
 <!--

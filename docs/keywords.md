@@ -105,3 +105,78 @@ When true, properties `INTERACTION {driver} THROUGH {max_nbody}-BODY` will alway
 This keyword produces no savings for a two-fragment molecule. But for the interaction energy of a three-fragment molecule, for example, 2-body
 subsystems can be skipped with `supersystem_ie_only=True` Do not use with `vmfc` in `bsse_type`
 as it cannot produce savings.
+
+### hmbe_spec
+
+**Hierarchical Many-Body Expansion (HMBE) specification** for reducing computational cost on large systems by organizing fragments into hierarchical tiers and applying different truncation orders at each level.
+
+HMBE can reduce the number of calculations by 100-1000x compared to standard MBE while maintaining good accuracy, making calculations on 50-100+ fragment systems feasible.
+
+The `hmbe_spec` parameter accepts an `HMBESpecification` object containing:
+- `truncation_orders`: Tuple of integers (T_1, T_2, [T_3]) specifying the maximum number of tier-k groups allowed in each n-body term
+- `hierarchy`: `FragmentHierarchy` object defining how fragments are organized into tiers
+- `schengen`: Optional `SchengenSpecification` for adding back important interface terms for improved accuracy
+
+When `hmbe_spec` is provided, only HMBE-selected terms (a subset of standard MBE) will be computed.
+
+**Basic Example (2-tier hierarchy):**
+
+```python
+from qcmanybody.models.hierarchy import FragmentHierarchy, HMBESpecification
+
+# Define 2-tier hierarchy: 6 fragments in 3 tier-1 groups
+hierarchy = FragmentHierarchy(
+    num_tiers=2,
+    fragment_tiers={
+        1: ("G0", "S0"), 2: ("G0", "S1"),  # Group 0: fragments 1-2
+        3: ("G1", "S2"), 4: ("G1", "S3"),  # Group 1: fragments 3-4
+        5: ("G2", "S4"), 6: ("G2", "S5"),  # Group 2: fragments 5-6
+    },
+    tier_names=("group", "fragment")
+)
+
+# (2,3)-HMBE: max 2 tier-1 groups, max 3-body
+hmbe_spec = HMBESpecification(
+    truncation_orders=(2, 3),
+    hierarchy=hierarchy
+)
+
+# Use in ManyBodyKeywords
+keywords = ManyBodyKeywords(
+    max_nbody=3,
+    bsse_type=[BsseEnum.cp],
+    hmbe_spec=hmbe_spec
+)
+```
+
+**With Schengen terms (for better accuracy):**
+
+```python
+from qcmanybody.models.hierarchy import SchengenSpecification
+
+hmbe_spec = HMBESpecification(
+    truncation_orders=(2, 3),
+    hierarchy=hierarchy,
+    schengen=SchengenSpecification(
+        enabled=True,
+        selection_fraction=0.1,  # Add top 10% of filtered terms
+        distance_metric="R2"
+    )
+)
+```
+
+**Truncation orders interpretation:**
+- For 2-tier (T_1, T_2)-HMBE:
+  - T_1 = max number of tier-1 groups per term (typically 2-3)
+  - T_2 = max n-body order (should match `max_nbody`)
+- For 3-tier (T_1, T_2, T_3)-HMBE:
+  - T_1 = max tier-1 groups
+  - T_2 = max tier-2 groups
+  - T_3 = max n-body order
+
+**Common configurations:**
+- `(2,3)`: Moderate reduction (~1.5-2x), good for validation
+- `(2,4)`: Balanced reduction (~3-5x), good accuracy
+- `(3,4)`: Higher accuracy (~1.2-1.5x), minimal reduction
+
+See the [HMBE User Guide](HMBE_USER_GUIDE.md) and [Migration Guide](MIGRATION_TO_HMBE.md) for detailed tutorials and examples.
