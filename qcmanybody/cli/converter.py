@@ -242,9 +242,10 @@ def convert_hmbe_specification(hmbe_schema: HMBESchema) -> HMBESpecification:
         truncation_orders=tuple(hmbe_schema.truncation_orders),
         hierarchy=hierarchy,
         schengen=schengen,
+        enumeration_mode=hmbe_schema.enumeration_mode,
     )
 
-    logger.debug(f"Converted HMBE specification: {hmbe_spec.truncation_orders} truncation orders, {hmbe_spec.num_tiers} tiers")
+    logger.debug(f"Converted HMBE specification: {hmbe_spec.truncation_orders} truncation orders, {hmbe_spec.num_tiers} tiers, {hmbe_spec.enumeration_mode} mode")
     if schengen and schengen.enabled:
         logger.debug(f"  Schengen enabled: {schengen.selection_fraction:.1%} selection, {schengen.distance_metric} metric")
 
@@ -355,6 +356,11 @@ def convert_to_manybody_input(cli_input: QCManyBodyInput, input_file_path: Optio
     """
     logger.info("Converting CLI input to ManyBodyInput")
 
+    # DEBUG
+    import sys
+    print("DEBUG: Starting conversion", file=sys.stderr)
+    sys.stderr.flush()
+
     # Resolve molecule file path if necessary
     mol_schema = cli_input.molecule
     if input_file_path and mol_schema.file:
@@ -373,8 +379,12 @@ def convert_to_manybody_input(cli_input: QCManyBodyInput, input_file_path: Optio
             mol_schema = MoleculeSchema(**{**mol_schema.dict(), "file": str(resolved_path)})
 
     # Load molecule
+    print("DEBUG: Loading molecule", file=sys.stderr)
+    sys.stderr.flush()
     try:
         molecule = load_molecule(mol_schema)
+        print(f"DEBUG: Loaded molecule with {len(molecule.symbols)} atoms", file=sys.stderr)
+        sys.stderr.flush()
     except MoleculeLoadError as e:
         raise ConversionError(f"Failed to load molecule: {e}") from e
 
@@ -382,14 +392,22 @@ def convert_to_manybody_input(cli_input: QCManyBodyInput, input_file_path: Optio
     driver = cli_input.get_driver().value
 
     # Convert calculation specification
+    print("DEBUG: Converting calculation spec", file=sys.stderr)
+    sys.stderr.flush()
     if cli_input.calculation.type == "single":
         specifications = convert_single_level(cli_input)
         levels_dict = None
     else:
         specifications, levels_dict = convert_multi_level(cli_input)
+    print("DEBUG: Converted calculation spec", file=sys.stderr)
+    sys.stderr.flush()
 
     # Create ManyBody keywords
+    print("DEBUG: Creating ManyBody keywords", file=sys.stderr)
+    sys.stderr.flush()
     mb_keywords = create_manybody_keywords(cli_input, levels_dict)
+    print("DEBUG: Created ManyBody keywords", file=sys.stderr)
+    sys.stderr.flush()
 
     # Create ManyBody protocols
     mb_protocols = create_manybody_protocols(cli_input)

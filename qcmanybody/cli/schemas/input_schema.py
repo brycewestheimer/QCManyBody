@@ -388,6 +388,10 @@ class HMBESchema(BaseModel):
         None,
         description="Optional Schengen term selection to add back important interface terms.",
     )
+    enumeration_mode: Optional[str] = Field(
+        "auto",
+        description="HMBE enumeration mode: 'direct' (direct generation), 'filter' (filter MBE list), or 'auto' (choose based on system size).",
+    )
 
     @validator("truncation_orders")
     @classmethod

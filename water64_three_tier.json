@@ -1492,7 +1492,7 @@
     "single": {
       "driver": "energy",
       "method": "hf",
-      "basis": "sto-3g",
+      "basis": "6-31g",
       "program": "psi4",
       "keywords": {
         "scf_type": "pk",
@@ -1511,6 +1511,7 @@
     "return_total_data": true,
     "supersystem_ie_only": false,
     "hmbe": {
+      "enumeration_mode": "direct",
       "truncation_orders": [
         2,
         3,

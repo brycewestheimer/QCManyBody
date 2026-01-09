@@ -302,21 +302,35 @@ def create_inline_molecule(mol_schema: MoleculeSchema) -> Molecule:
     MoleculeLoadError
         If inline specification is invalid
     """
+    import sys
+    
+    print("DEBUG: create_inline_molecule started", file=sys.stderr)
+    sys.stderr.flush()
+    
     if mol_schema.inline is None:
         raise MoleculeLoadError("Inline molecule specification is missing")
 
     inline = mol_schema.inline
+    
+    print(f"DEBUG: inline spec has {len(inline.symbols)} atoms, {len(inline.fragments)} fragments", file=sys.stderr)
+    sys.stderr.flush()
 
     try:
         # Convert geometry to Bohr if needed (Molecule always stores in Bohr)
         from qcelemental import constants
 
+        print("DEBUG: About to convert geometry units", file=sys.stderr)
+        sys.stderr.flush()
+        
         geometry = inline.geometry
         if inline.units == "angstrom":
             # Convert from Angstroms to Bohr
             conversion = constants.conversion_factor("angstrom", "bohr")
             geometry = [[x * conversion for x in coord] for coord in geometry]
 
+        print("DEBUG: About to create Molecule object", file=sys.stderr)
+        sys.stderr.flush()
+        
         mol = Molecule(
             symbols=inline.symbols,
             geometry=geometry,
@@ -326,6 +340,9 @@ def create_inline_molecule(mol_schema: MoleculeSchema) -> Molecule:
             fragment_charges=inline.fragment_charges,
             fragment_multiplicities=inline.fragment_multiplicities,
         )
+        
+        print("DEBUG: Molecule object created successfully", file=sys.stderr)
+        sys.stderr.flush()
 
         logger.info(
             f"Created inline molecule: {len(inline.symbols)} atoms, {len(inline.fragments)} fragments (units: {inline.units})"

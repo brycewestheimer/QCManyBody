@@ -164,14 +164,6 @@ class ManyBodyCore:
 
         for mc in self.mc_levels:
             nbodies = self.nbodies_per_mc_level[mc]
-            base_compute_dict = build_nbody_compute_list(
-                self.bsse_type,
-                self.nfragments,
-                nbodies,
-                self.return_total_data,
-                self.supersystem_ie_only,
-                self.max_nbody,
-            )
 
             # Apply HMBE filtering if specified
             if self.hmbe_spec is not None:
@@ -182,72 +174,146 @@ class ManyBodyCore:
                     enumeration_mode = "direct" if self.nfragments >= 30 else "filter"
 
                 if enumeration_mode == "direct":
-                    # Direct enumeration: generate only HMBE terms
+                    # Direct enumeration: generate only HMBE terms, skip building full MBE list
+                    # This is critical for large systems to avoid memory explosion
                     from qcmanybody.hmbe_enumerate import enumerate_hmbe_terms
 
-                    # Get HMBE fragment tuples
+                    # Get HMBE fragment tuples (only ~5k terms for 64 fragments)
                     hmbe_frag_tuples = enumerate_hmbe_terms(self.hmbe_spec)
 
-                    # Build compute dict from HMBE terms
-                    # Need to create (frag, bas) pairs for each BSSE type
-                    filtered_dict = {}
-                    for bsse_key in base_compute_dict:
-                        filtered_dict[bsse_key] = {}
+                    # Construct (frag, bas) pairs directly from HMBE fragment tuples
+                    # without generating all ~680k MBE combinations
+                    fragment_range = tuple(range(1, self.nfragments + 1))
+                    filtered_dict = {
+                        "all": {},
+                        "cp": {},
+                        "nocp": {},
+                        "vmfc_compute": {},
+                        "vmfc_levels": {},
+                    }
 
-                        # For each HMBE fragment tuple, find ALL matching (frag, bas) pairs
-                        # in base_compute_dict, regardless of which nbody level they're stored at
-                        # (This is important for CP correction where ghost terms may be stored
-                        # at higher nbody levels)
-                        for frag_tuple in hmbe_frag_tuples:
-                            # Search across all nbody levels in base_compute_dict
-                            for nbody_level in base_compute_dict[bsse_key]:
-                                for frag, bas in base_compute_dict[bsse_key][nbody_level]:
-                                    if frag == frag_tuple:
-                                        # Store in the dict using the nbody_level from base_compute_dict
-                                        if nbody_level not in filtered_dict[bsse_key]:
-                                            filtered_dict[bsse_key][nbody_level] = set()
-                                        filtered_dict[bsse_key][nbody_level].add((frag, bas))
+                    # Build compute lists for each BSSE type
+                    for frag_tuple in hmbe_frag_tuples:
+                        nbody = len(frag_tuple)
+
+                        # CP: Use supersystem basis (all fragments)
+                        if BsseEnum.cp in self.bsse_type:
+                            if nbody not in filtered_dict["cp"]:
+                                filtered_dict["cp"][nbody] = set()
+                            filtered_dict["cp"][nbody].add((frag_tuple, fragment_range))
+
+                        # NOCP: Use natural basis (only the fragments in the tuple)
+                        if BsseEnum.nocp in self.bsse_type:
+                            if nbody not in filtered_dict["nocp"]:
+                                filtered_dict["nocp"][nbody] = set()
+                            filtered_dict["nocp"][nbody].add((frag_tuple, frag_tuple))
+
+                        # VMFC: Like CP but for each combination
+                        if BsseEnum.vmfc in self.bsse_type:
+                            if nbody not in filtered_dict["vmfc_compute"]:
+                                filtered_dict["vmfc_compute"][nbody] = set()
+                                filtered_dict["vmfc_levels"][nbody] = set()
+                            filtered_dict["vmfc_compute"][nbody].add((frag_tuple, frag_tuple))
+                            filtered_dict["vmfc_levels"][nbody].add((frag_tuple, frag_tuple))
+
+                    # Add monomers in monomer basis if total data requested
+                    if self.return_total_data and 1 in nbodies:
+                        if 1 not in filtered_dict["nocp"]:
+                            filtered_dict["nocp"][1] = set()
+                        # Only add monomers that are in HMBE terms
+                        monomer_frags = {frag for term in hmbe_frag_tuples for frag in term}
+                        for ifr in monomer_frags:
+                            filtered_dict["nocp"][1].add(((ifr,), (ifr,)))
+
+                    # Combine into "all"
+                    all_nbodies = set()
+                    for subdict in [filtered_dict["cp"], filtered_dict["nocp"], filtered_dict["vmfc_compute"]]:
+                        all_nbodies.update(subdict.keys())
+                    
+                    for nbody in all_nbodies:
+                        filtered_dict["all"][nbody] = set()
+                        for subdict_key in ["cp", "nocp", "vmfc_compute"]:
+                            if nbody in filtered_dict[subdict_key]:
+                                filtered_dict["all"][nbody].update(filtered_dict[subdict_key][nbody])
 
                     # Add Schengen terms if enabled
+                    # Note: Schengen requires full MBE list for candidates, so we build it only if needed
                     if self.hmbe_spec.schengen and self.hmbe_spec.schengen.enabled:
+                        logger.warning(
+                            "Schengen terms with direct enumeration requires building full MBE list. "
+                            "This may consume significant memory for large systems. "
+                            "Consider using filter mode or disabling Schengen for large systems."
+                        )
+                        
+                        # Build full MBE list only for Schengen candidate selection
+                        base_compute_dict = build_nbody_compute_list(
+                            self.bsse_type,
+                            self.nfragments,
+                            nbodies,
+                            self.return_total_data,
+                            self.supersystem_ie_only,
+                            self.max_nbody,
+                        )
+
                         from qcmanybody.hmbe_filter import (
                             get_schengen_candidates,
                             select_schengen_terms,
                         )
 
-                        for bsse_key in filtered_dict:
-                            # Get candidates (terms in MBE but not in base HMBE)
-                            candidates = get_schengen_candidates(
-                                base_compute_dict[bsse_key], filtered_dict[bsse_key], self.hmbe_spec
-                            )
+                        for bsse_key in ["cp", "nocp", "vmfc_compute"]:
+                            if bsse_key not in ["all", "vmfc_levels"] and filtered_dict[bsse_key]:
+                                # Get candidates (terms in MBE but not in base HMBE)
+                                candidates = get_schengen_candidates(
+                                    base_compute_dict[bsse_key], filtered_dict[bsse_key], self.hmbe_spec
+                                )
 
-                            # Select top fraction by distance metric + required sub-clusters
-                            schengen_terms, required_subs = select_schengen_terms(
-                                candidates, self.molecule, self.hmbe_spec
-                            )
+                                # Select top fraction by distance metric + required sub-clusters
+                                schengen_terms, required_subs = select_schengen_terms(
+                                    candidates, self.molecule, self.hmbe_spec
+                                )
 
-                            # Add BOTH Schengen terms AND their sub-clusters for completeness
-                            all_terms_to_add = schengen_terms | required_subs
+                                # Add BOTH Schengen terms AND their sub-clusters
+                                all_terms_to_add = schengen_terms | required_subs
 
-                            for frag_tuple in all_terms_to_add:
-                                nbody = len(frag_tuple)
-                                if nbody not in filtered_dict[bsse_key]:
-                                    filtered_dict[bsse_key][nbody] = set()
+                                for frag_tuple in all_terms_to_add:
+                                    nbody = len(frag_tuple)
+                                    if nbody not in filtered_dict[bsse_key]:
+                                        filtered_dict[bsse_key][nbody] = set()
 
-                                # Find matching (frag, bas) pairs from base MBE
-                                for frag, bas in base_compute_dict[bsse_key].get(nbody, set()):
-                                    if frag == frag_tuple:
-                                        filtered_dict[bsse_key][nbody].add((frag, bas))
+                                    # Construct (frag, bas) based on BSSE type
+                                    if bsse_key == "cp":
+                                        filtered_dict[bsse_key][nbody].add((frag_tuple, fragment_range))
+                                    elif bsse_key == "nocp":
+                                        filtered_dict[bsse_key][nbody].add((frag_tuple, frag_tuple))
+                                    elif bsse_key == "vmfc_compute":
+                                        filtered_dict[bsse_key][nbody].add((frag_tuple, frag_tuple))
 
-                            logger.info(
-                                f"[{mc}] Added {len(schengen_terms)} Schengen terms + "
-                                f"{len(required_subs)} sub-clusters to {bsse_key}"
-                            )
+                                logger.info(
+                                    f"[{mc}] Added {len(schengen_terms)} Schengen terms + "
+                                    f"{len(required_subs)} sub-clusters to {bsse_key}"
+                                )
+
+                        # Rebuild "all" after adding Schengen
+                        filtered_dict["all"] = {}
+                        for nbody in all_nbodies:
+                            filtered_dict["all"][nbody] = set()
+                            for subdict_key in ["cp", "nocp", "vmfc_compute"]:
+                                if nbody in filtered_dict[subdict_key]:
+                                    filtered_dict["all"][nbody].update(filtered_dict[subdict_key][nbody])
 
                     self.mc_compute_dict[mc] = filtered_dict
 
                 else:
                     # Filter mode: generate all MBE terms, then filter
+                    base_compute_dict = build_nbody_compute_list(
+                        self.bsse_type,
+                        self.nfragments,
+                        nbodies,
+                        self.return_total_data,
+                        self.supersystem_ie_only,
+                        self.max_nbody,
+                    )
+
                     from qcmanybody.hmbe_filter import (
                         filter_compute_list,
                         get_schengen_candidates,
@@ -293,6 +359,14 @@ class ManyBodyCore:
                     self.mc_compute_dict[mc] = filtered_dict
             else:
                 # Standard MBE (no filtering)
+                base_compute_dict = build_nbody_compute_list(
+                    self.bsse_type,
+                    self.nfragments,
+                    nbodies,
+                    self.return_total_data,
+                    self.supersystem_ie_only,
+                    self.max_nbody,
+                )
                 self.mc_compute_dict[mc] = base_compute_dict
 
         return self.mc_compute_dict
@@ -330,24 +404,48 @@ class ManyBodyCore:
         if self.hmbe_spec is None:
             return None
 
-        # Count base MBE terms (without HMBE filtering)
+        # Determine which enumeration mode was/will be used
+        enumeration_mode = self.hmbe_spec.enumeration_mode
+        actual_mode = enumeration_mode
+        if enumeration_mode == "auto":
+            actual_mode = "direct" if self.nfragments >= 30 else "filter"
+
+        # Count base MBE terms
+        # For large systems in direct mode, avoid building the full MBE list (memory explosion!)
+        # Instead, calculate counts using combinatorial formulas
         mbe_counts = {}
-        for mc in self.mc_levels:
-            nbodies = self.nbodies_per_mc_level[mc]
-            base_dict = build_nbody_compute_list(
-                self.bsse_type,
-                self.nfragments,
-                nbodies,
-                self.return_total_data,
-                self.supersystem_ie_only,
-                self.max_nbody,
-            )
-            # Count all terms across all BSSE types
-            all_terms = set()
-            for bsse_dict in base_dict.values():
-                for terms in bsse_dict.values():
-                    all_terms.update(terms)
-            mbe_counts[mc] = len(all_terms)
+        if actual_mode == "direct" and self.nfragments >= 30:
+            # Use combinatorial formula: sum of C(n,k) for k in nbodies
+            from math import comb
+            
+            for mc in self.mc_levels:
+                nbodies = self.nbodies_per_mc_level[mc]
+                total_count = 0
+                for nbody in nbodies:
+                    if nbody == "supersystem":
+                        total_count += 1
+                    else:
+                        # C(nfragments, nbody) combinations
+                        total_count += comb(self.nfragments, nbody)
+                mbe_counts[mc] = total_count
+        else:
+            # For small systems or filter mode, actually build the list
+            for mc in self.mc_levels:
+                nbodies = self.nbodies_per_mc_level[mc]
+                base_dict = build_nbody_compute_list(
+                    self.bsse_type,
+                    self.nfragments,
+                    nbodies,
+                    self.return_total_data,
+                    self.supersystem_ie_only,
+                    self.max_nbody,
+                )
+                # Count all terms across all BSSE types
+                all_terms = set()
+                for bsse_dict in base_dict.values():
+                    for terms in bsse_dict.values():
+                        all_terms.update(terms)
+                mbe_counts[mc] = len(all_terms)
 
         # Count HMBE terms (from compute_map which has filtering applied)
         hmbe_counts = {}
@@ -357,12 +455,6 @@ class ManyBodyCore:
                 for terms in bsse_dict.values():
                     all_terms.update(terms)
             hmbe_counts[mc] = len(all_terms)
-
-        # Determine which enumeration mode was actually used
-        enumeration_mode = self.hmbe_spec.enumeration_mode
-        actual_mode = enumeration_mode
-        if enumeration_mode == "auto":
-            actual_mode = "direct" if self.nfragments >= 30 else "filter"
 
         return {
             "mbe_term_counts": mbe_counts,
