@@ -290,70 +290,89 @@ class MPIExecutor(BaseParallelExecutor):
         """
         Master process: Distribute tasks and collect results (blocking version).
 
-        Implements simple work queue pattern with blocking communication:
-        1. Send initial tasks to all workers
-        2. As workers complete, send more tasks
-        3. Collect all results
+        Implements work queue pattern with dependency awareness:
+        1. Group tasks by dependency level
+        2. Execute each level completely before next level
+        3. Within each level, use work queue for parallelism
 
         Parameters
         ----------
         tasks : List[ParallelTask]
-            Tasks to execute
+            Tasks to execute (pre-ordered by dependency level)
         progress_callback : Optional[Callable]
             Progress callback function
 
         Returns
         -------
         List[TaskResult]
-            Collected results from all workers
+            Collected results from all workers in original task order
         """
         if not tasks:
             return []
 
-        logger.info(f"Master: Distributing {len(tasks)} tasks to {self.n_workers} workers")
+        total = len(tasks)
+        logger.info(f"Master: Distributing {total} tasks to {self.n_workers} workers with dependency awareness")
 
-        results = []
-        task_queue = list(tasks)
-        active_workers = set()
+        # Group tasks by dependency level
+        tasks_by_level = self._group_tasks_by_dependency_level(tasks)
+        logger.info(f"Master: Tasks organized into {len(tasks_by_level)} dependency levels")
 
-        # Send initial tasks to all workers
-        for worker_rank in range(1, min(self.size, len(tasks) + 1)):
-            if task_queue:
-                task = task_queue.pop(0)
-                logger.debug(f"Master: Sending task {task.task_id} to worker {worker_rank}")
-                self.comm.send(task, dest=worker_rank, tag=0)
-                active_workers.add(worker_rank)
+        # Track results by task_id to preserve order
+        result_map = {}
+        completed_count = 0
 
-        # Collect results and send more tasks
-        while active_workers:
-            # Receive result from any worker
-            status = MPI.Status()
-            result = self.comm.recv(source=MPI.ANY_SOURCE, tag=1, status=status)
-            worker_rank = status.Get_source()
+        # Execute level by level
+        for level in sorted(tasks_by_level.keys()):
+            level_tasks = tasks_by_level[level]
+            logger.info(f"Master: Executing level {level} with {len(level_tasks)} tasks...")
 
-            results.append(result)
-            logger.debug(
-                f"Master: Received result for task {result.task_id} "
-                f"from worker {worker_rank} "
-                f"(success: {result.success})"
-            )
+            task_queue = list(level_tasks)
+            active_workers = set()
 
-            # Call progress callback
-            if progress_callback:
-                try:
-                    progress_callback(result.task_id, len(results), len(tasks))
-                except Exception as e:
-                    logger.warning(f"Progress callback failed: {e}")
+            # Send initial tasks to all workers
+            for worker_rank in range(1, min(self.size, len(task_queue) + 1)):
+                if task_queue:
+                    task = task_queue.pop(0)
+                    logger.debug(f"Master: Sending task {task.task_id} (level {level}) to worker {worker_rank}")
+                    self.comm.send(task, dest=worker_rank, tag=0)
+                    active_workers.add(worker_rank)
 
-            # Send next task to this worker or mark idle
-            if task_queue:
-                task = task_queue.pop(0)
-                logger.debug(f"Master: Sending task {task.task_id} to worker {worker_rank}")
-                self.comm.send(task, dest=worker_rank, tag=0)
-            else:
-                # No more tasks, worker becomes idle
-                active_workers.remove(worker_rank)
-                logger.debug(f"Master: Worker {worker_rank} idle")
+            # Collect results for this level
+            while active_workers:
+                # Receive result from any worker
+                status = MPI.Status()
+                result = self.comm.recv(source=MPI.ANY_SOURCE, tag=1, status=status)
+                worker_rank = status.Get_source()
+
+                result_map[result.task_id] = result
+                completed_count += 1
+
+                logger.debug(
+                    f"Master: Received result for task {result.task_id} (level {level}) "
+                    f"from worker {worker_rank} (success: {result.success})"
+                )
+
+                # Call progress callback
+                if progress_callback:
+                    try:
+                        progress_callback(result.task_id, completed_count, total)
+                    except Exception as e:
+                        logger.warning(f"Progress callback failed: {e}")
+
+                # Send next task to this worker or mark idle
+                if task_queue:
+                    task = task_queue.pop(0)
+                    logger.debug(f"Master: Sending task {task.task_id} (level {level}) to worker {worker_rank}")
+                    self.comm.send(task, dest=worker_rank, tag=0)
+                else:
+                    # No more tasks in this level, worker becomes idle
+                    active_workers.remove(worker_rank)
+                    logger.debug(f"Master: Worker {worker_rank} idle (level {level} complete)")
+
+            logger.info(f"Master: Level {level} complete with {len(level_tasks)} tasks")
+
+        # Reconstruct results in original task order
+        results = [result_map[task.task_id] for task in tasks]
 
         logger.info(f"Master: Collected {len(results)} results")
 
@@ -372,8 +391,10 @@ class MPIExecutor(BaseParallelExecutor):
         """
         Master process: Distribute tasks and collect results (non-blocking version).
 
-        Uses non-blocking Isend/Irecv for improved performance by overlapping
-        communication and computation.
+        Uses non-blocking Isend/Irecv with dependency awareness:
+        - Groups tasks by dependency level
+        - Executes each level completely before next level
+        - Within each level, uses non-blocking communication for performance
 
         Improvements over blocking version:
         - Overlaps sending new tasks with receiving results
@@ -384,30 +405,31 @@ class MPIExecutor(BaseParallelExecutor):
         Parameters
         ----------
         tasks : List[ParallelTask]
-            Tasks to execute
+            Tasks to execute (pre-ordered by dependency level)
         progress_callback : Optional[Callable]
             Progress callback function
 
         Returns
         -------
         List[TaskResult]
-            Collected results from all workers
+            Collected results from all workers in original task order
         """
         if not tasks:
             return []
 
-        logger.info(f"Master: Distributing {len(tasks)} tasks to {self.n_workers} workers (non-blocking)")
+        total = len(tasks)
+        logger.info(f"Master: Distributing {total} tasks to {self.n_workers} workers (non-blocking, dependency-aware)")
 
-        results = []
-        task_queue = list(tasks)
+        # Group tasks by dependency level
+        tasks_by_level = self._group_tasks_by_dependency_level(tasks)
+        logger.info(f"Master: Tasks organized into {len(tasks_by_level)} dependency levels")
 
-        # Track pending operations and worker state
-        pending_sends: Dict[int, MPI.Request] = {}  # worker_rank -> send request
-        pending_recvs: Dict[int, Tuple[MPI.Request, List]] = {}  # worker_rank -> (recv request, buffer)
-        active_workers = set()
+        # Track results by task_id to preserve order
+        result_map = {}
+        completed_count = 0
 
         # Helper function to send task with non-blocking send
-        def send_task_async(worker_rank: int, task: Optional[ParallelTask]) -> None:
+        def send_task_async(worker_rank: int, task: Optional[ParallelTask], pending_sends) -> None:
             """Send task to worker using non-blocking Isend."""
             # Wait for previous send to complete if any
             if worker_rank in pending_sends:
@@ -425,7 +447,7 @@ class MPIExecutor(BaseParallelExecutor):
                 logger.debug(f"Master: Sending task {task.task_id} to worker {worker_rank} (async)")
 
         # Helper function to start receiving result from worker
-        def start_recv_async(worker_rank: int) -> None:
+        def start_recv_async(worker_rank: int, pending_recvs) -> None:
             """Start non-blocking receive for result from worker."""
             if worker_rank not in pending_recvs:
                 # Create buffer and start receive
@@ -433,68 +455,86 @@ class MPIExecutor(BaseParallelExecutor):
                 req = self.comm.irecv(source=worker_rank, tag=1)
                 pending_recvs[worker_rank] = (req, recv_buf)
 
-        # Send initial tasks to all workers and start receiving
-        for worker_rank in range(1, min(self.size, len(tasks) + 1)):
-            if task_queue:
-                task = task_queue.pop(0)
-                send_task_async(worker_rank, task)
-                start_recv_async(worker_rank)
-                active_workers.add(worker_rank)
+        # Execute level by level
+        for level in sorted(tasks_by_level.keys()):
+            level_tasks = tasks_by_level[level]
+            logger.info(f"Master: Executing level {level} with {len(level_tasks)} tasks...")
 
-        # Process results as they come in
-        while active_workers:
-            # Check all active workers for completed receives
-            completed_workers = []
+            task_queue = list(level_tasks)
 
-            for worker_rank in active_workers:
-                if worker_rank in pending_recvs:
-                    req, recv_buf = pending_recvs[worker_rank]
+            # Track pending operations and worker state for this level
+            pending_sends: Dict[int, MPI.Request] = {}
+            pending_recvs: Dict[int, Tuple[MPI.Request, List]] = {}
+            active_workers = set()
 
-                    # Test if receive is complete (non-blocking check)
-                    status = MPI.Status()
-                    completed = req.Test(status=status)
-
-                    if completed:
-                        # Receive completed, get result
-                        recv_start = time.time()
-                        result = req.wait()
-                        self._comm_stats['results_received'] += 1
-                        self._comm_stats['total_recv_time'] += time.time() - recv_start
-
-                        results.append(result)
-                        del pending_recvs[worker_rank]
-                        completed_workers.append(worker_rank)
-
-                        logger.debug(
-                            f"Master: Received result for task {result.task_id} "
-                            f"from worker {worker_rank} (success: {result.success})"
-                        )
-
-                        # Call progress callback
-                        if progress_callback:
-                            try:
-                                progress_callback(result.task_id, len(results), len(tasks))
-                            except Exception as e:
-                                logger.warning(f"Progress callback failed: {e}")
-
-            # Send next tasks to completed workers
-            for worker_rank in completed_workers:
+            # Send initial tasks to all workers and start receiving
+            for worker_rank in range(1, min(self.size, len(task_queue) + 1)):
                 if task_queue:
                     task = task_queue.pop(0)
-                    send_task_async(worker_rank, task)
-                    start_recv_async(worker_rank)
-                else:
-                    # No more tasks, worker becomes idle
-                    active_workers.remove(worker_rank)
-                    logger.debug(f"Master: Worker {worker_rank} idle")
+                    send_task_async(worker_rank, task, pending_sends)
+                    start_recv_async(worker_rank, pending_recvs)
+                    active_workers.add(worker_rank)
 
-            # Small sleep to prevent busy-waiting
-            if active_workers and not completed_workers:
-                time.sleep(0.001)  # 1ms sleep
+            # Process results as they come in for this level
+            while active_workers:
+                # Check all active workers for completed receives
+                completed_workers = []
 
-        # Wait for all pending sends to complete
-        for worker_rank, req in pending_sends.items():
-            req.Wait()
+                for worker_rank in active_workers:
+                    if worker_rank in pending_recvs:
+                        req, recv_buf = pending_recvs[worker_rank]
+
+                        # Test if receive is complete (non-blocking check)
+                        status = MPI.Status()
+                        completed = req.Test(status=status)
+
+                        if completed:
+                            # Receive completed, get result
+                            recv_start = time.time()
+                            result = req.wait()
+                            self._comm_stats['results_received'] += 1
+                            self._comm_stats['total_recv_time'] += time.time() - recv_start
+
+                            result_map[result.task_id] = result
+                            completed_count += 1
+                            del pending_recvs[worker_rank]
+                            completed_workers.append(worker_rank)
+
+                            logger.debug(
+                                f"Master: Received result for task {result.task_id} (level {level}) "
+                                f"from worker {worker_rank} (success: {result.success})"
+                            )
+
+                            # Call progress callback
+                            if progress_callback:
+                                try:
+                                    progress_callback(result.task_id, completed_count, total)
+                                except Exception as e:
+                                    logger.warning(f"Progress callback failed: {e}")
+
+                # Send next tasks to completed workers
+                for worker_rank in completed_workers:
+                    if task_queue:
+                        task = task_queue.pop(0)
+                        send_task_async(worker_rank, task, pending_sends)
+                        start_recv_async(worker_rank, pending_recvs)
+                    else:
+                        # No more tasks in this level, worker becomes idle
+                        active_workers.remove(worker_rank)
+                        logger.debug(f"Master: Worker {worker_rank} idle (level {level} complete)")
+
+                # Small sleep to prevent busy-waiting
+                if active_workers and not completed_workers:
+                    time.sleep(0.001)  # 1ms sleep
+
+            # Wait for all pending sends to complete for this level
+            for worker_rank, req in pending_sends.items():
+                req.Wait()
+
+            logger.info(f"Master: Level {level} complete with {len(level_tasks)} tasks")
+
+        # Reconstruct results in original task order
+        results = [result_map[task.task_id] for task in tasks]
 
         logger.info(f"Master: Collected {len(results)} results")
 

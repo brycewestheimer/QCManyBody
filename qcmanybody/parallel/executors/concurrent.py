@@ -194,17 +194,22 @@ class ConcurrentExecutor(BaseParallelExecutor):
         progress_callback: Optional[Callable[[str, int, int], None]] = None
     ) -> List[TaskResult]:
         """
-        Execute tasks using concurrent.futures.
+        Execute tasks using concurrent.futures with dependency awareness.
+
+        Tasks are grouped by dependency level and executed level-by-level to
+        respect N-body mathematical dependencies.
 
         Parameters
         ----------
         tasks : List[ParallelTask]
-            Tasks to execute
+            Tasks to execute (pre-ordered by dependency level)
+        progress_callback : Optional[Callable[[str, int, int], None]]
+            Optional progress callback
 
         Returns
         -------
         List[TaskResult]
-            Results from task execution
+            Results from task execution in same order as input
         """
         if not tasks:
             return []
@@ -212,106 +217,124 @@ class ConcurrentExecutor(BaseParallelExecutor):
         if self._executor is None:
             raise RuntimeError("Executor not initialized. Use context manager or call __enter__.")
 
-        logger.info(f"Submitting {len(tasks)} tasks to concurrent.futures executor")
+        total = len(tasks)
+        logger.info(f"Executing {total} tasks with dependency awareness")
 
         # Import worker function
         from ..worker import execute_task
 
-        # Submit all tasks and get futures
-        future_to_task = {}
-        for task in tasks:
-            future = self._executor.submit(execute_task, task)
-            future_to_task[future] = task
+        # Group tasks by dependency level
+        tasks_by_level = self._group_tasks_by_dependency_level(tasks)
+        logger.info(f"Tasks organized into {len(tasks_by_level)} dependency levels")
 
-        # Collect results as they complete
-        results = []
-        completed = 0
-        failed = 0
+        # Track results by task_id to preserve input order
+        result_map = {}
+        completed_count = 0
 
-        # Use as_completed with timeout
         timeout = self.config.timeout_per_task if self.config.timeout_per_task > 0 else None
 
-        try:
-            for future in concurrent.futures.as_completed(
-                future_to_task.keys(),
-                timeout=timeout
-            ):
-                task = future_to_task[future]
+        # Execute level by level
+        for level in sorted(tasks_by_level.keys()):
+            level_tasks = tasks_by_level[level]
+            logger.info(f"Executing level {level} with {len(level_tasks)} tasks...")
 
-                try:
-                    result = future.result(timeout=timeout)
-                    results.append(result)
+            # Submit all tasks in this level
+            future_to_task = {}
+            for task in level_tasks:
+                future = self._executor.submit(execute_task, task)
+                future_to_task[future] = task
 
-                    if result.success:
-                        completed += 1
-                        logger.debug(f"Task {task.task_id} completed successfully")
-                    else:
-                        failed += 1
-                        logger.warning(f"Task {task.task_id} failed: {result.error_message}")
-
-                    # Call progress callback
-                    if progress_callback:
-                        try:
-                            progress_callback(task.task_id, completed + failed, len(tasks))
-                        except Exception as e:
-                            logger.warning(f"Progress callback failed: {e}")
-
-                except concurrent.futures.TimeoutError:
-                    failed += 1
-                    error_msg = f"Task {task.task_id} timed out after {timeout}s"
-                    logger.error(error_msg)
-                    results.append(TaskResult(
-                        task_id=task.task_id,
-                        success=False,
-                        error_message=error_msg,
-                        atomic_result=None
-                    ))
-
-                    # Call progress callback
-                    if progress_callback:
-                        try:
-                            progress_callback(task.task_id, completed + failed, len(tasks))
-                        except Exception as e:
-                            logger.warning(f"Progress callback failed: {e}")
-
-                except Exception as e:
-                    failed += 1
-                    error_msg = f"Task {task.task_id} raised exception: {str(e)}"
-                    logger.error(error_msg)
-                    results.append(TaskResult(
-                        task_id=task.task_id,
-                        success=False,
-                        error_message=error_msg,
-                        atomic_result=None
-                    ))
-
-                    # Call progress callback
-                    if progress_callback:
-                        try:
-                            progress_callback(task.task_id, completed + failed, len(tasks))
-                        except Exception as e:
-                            logger.warning(f"Progress callback failed: {e}")
-
-        except concurrent.futures.TimeoutError:
-            # Overall timeout exceeded
-            logger.error(f"Overall execution timeout exceeded ({timeout}s)")
-
-            # Cancel remaining futures
-            for future in future_to_task.keys():
-                if not future.done():
-                    future.cancel()
+            # Collect results for this level as they complete
+            try:
+                for future in concurrent.futures.as_completed(future_to_task.keys(), timeout=timeout):
                     task = future_to_task[future]
-                    results.append(TaskResult(
-                        task_id=task.task_id,
-                        success=False,
-                        error_message="Execution cancelled due to timeout",
-                        atomic_result=None
-                    ))
 
-        logger.info(
-            f"Execution complete: {completed} succeeded, {failed} failed "
-            f"out of {len(tasks)} total tasks"
-        )
+                    try:
+                        result = future.result(timeout=timeout)
+                        result_map[task.task_id] = result
+                        completed_count += 1
+
+                        # Log result
+                        status_symbol = "✓" if result.success else "✗"
+                        logger.info(
+                            f"{status_symbol} Task {completed_count}/{total} (level {level}, {task.task_id}): "
+                            f"{result.execution_time:.2f}s"
+                        )
+
+                        # Progress callback
+                        if progress_callback:
+                            try:
+                                progress_callback(task.task_id, completed_count, total)
+                            except Exception as e:
+                                logger.warning(f"Progress callback failed: {e}")
+
+                        if not result.success:
+                            logger.error(f"Task {task.task_id} failed: {result.error_message}")
+
+                    except concurrent.futures.TimeoutError:
+                        error_msg = f"Task {task.task_id} timed out after {timeout}s"
+                        logger.error(error_msg)
+                        result_map[task.task_id] = TaskResult(
+                            task_id=task.task_id,
+                            success=False,
+                            status=TaskStatus.TIMEOUT,
+                            error_message=error_msg,
+                            atomic_result=None
+                        )
+                        completed_count += 1
+
+                        if progress_callback:
+                            try:
+                                progress_callback(task.task_id, completed_count, total)
+                            except Exception as e:
+                                logger.warning(f"Progress callback failed: {e}")
+
+                    except Exception as e:
+                        error_msg = f"Task {task.task_id} raised exception: {str(e)}"
+                        logger.error(error_msg)
+                        result_map[task.task_id] = TaskResult(
+                            task_id=task.task_id,
+                            success=False,
+                            status=TaskStatus.FAILED,
+                            error_message=error_msg,
+                            error_type=type(e).__name__,
+                            atomic_result=None
+                        )
+                        completed_count += 1
+
+                        if progress_callback:
+                            try:
+                                progress_callback(task.task_id, completed_count, total)
+                            except Exception as e:
+                                logger.warning(f"Progress callback failed: {e}")
+
+            except concurrent.futures.TimeoutError:
+                # Overall level timeout exceeded
+                logger.error(f"Level {level} timeout exceeded ({timeout}s)")
+
+                # Cancel remaining futures in this level
+                for future in future_to_task.keys():
+                    if not future.done():
+                        future.cancel()
+                        task = future_to_task[future]
+                        result_map[task.task_id] = TaskResult(
+                            task_id=task.task_id,
+                            success=False,
+                            status=TaskStatus.CANCELLED,
+                            error_message="Execution cancelled due to timeout",
+                            atomic_result=None
+                        )
+                        completed_count += 1
+
+            logger.info(f"Level {level} complete: {len(level_tasks)} tasks finished")
+
+        # Reconstruct results list in original task order
+        results = [result_map[task.task_id] for task in tasks]
+
+        # Summary
+        successful = sum(1 for r in results if r.success)
+        failed = total - successful
+        logger.info(f"Execution complete: {successful} succeeded, {failed} failed out of {total} total tasks")
 
         return results
 

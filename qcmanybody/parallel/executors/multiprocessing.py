@@ -102,10 +102,12 @@ class MultiprocessingExecutor(BaseParallelExecutor):
         tasks: List[ParallelTask],
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ) -> List[TaskResult]:
-        """Execute tasks in parallel using process pool.
+        """Execute tasks in parallel using process pool with dependency awareness.
 
-        Tasks are submitted to the pool and executed asynchronously.
-        Results are collected in the original task order.
+        Tasks are grouped by dependency level and executed level-by-level to
+        respect N-body mathematical dependencies. All tasks at a given level
+        execute in parallel, but the executor waits for a level to complete
+        before starting the next level.
 
         Parameters
         ----------
@@ -131,71 +133,87 @@ class MultiprocessingExecutor(BaseParallelExecutor):
         self.validate_tasks(tasks)
 
         total = len(tasks)
-        self.logger.info(f"Executing {total} tasks on {self._n_workers} workers")
+        self.logger.info(f"Executing {total} tasks on {self._n_workers} workers with dependency awareness")
 
         start_time = time.time()
 
-        # Submit all tasks asynchronously
-        async_results = []
-        for task in tasks:
-            ar = self._pool.apply_async(
-                execute_single_task,
-                args=(task, self.config),
-                error_callback=lambda e: self.logger.error(f"Task error: {e}"),
-            )
-            async_results.append((task, ar))
+        # Group tasks by dependency level
+        tasks_by_level = self._group_tasks_by_dependency_level(tasks)
+        self.logger.info(f"Tasks organized into {len(tasks_by_level)} dependency levels")
 
-        # Collect results with progress tracking
-        results = []
-        for i, (task, ar) in enumerate(async_results):
-            try:
-                # Wait for result with timeout
-                result = ar.get(timeout=self.config.timeout_per_task)
-                results.append(result)
+        # Track results in order to preserve input task order
+        result_map = {}  # task_id -> TaskResult
+        completed_count = 0
 
-                # Log result
-                status_symbol = "✓" if result.success else "✗"
-                self.logger.info(
-                    f"{status_symbol} Task {i+1}/{total} ({task.task_id}): "
-                    f"{result.execution_time:.2f}s, worker={result.worker_id}"
+        # Execute level by level
+        for level in sorted(tasks_by_level.keys()):
+            level_tasks = tasks_by_level[level]
+            self.logger.info(f"Executing level {level} with {len(level_tasks)} tasks...")
+
+            # Submit all tasks in this level asynchronously
+            async_results = []
+            for task in level_tasks:
+                ar = self._pool.apply_async(
+                    execute_single_task,
+                    args=(task, self.config),
+                    error_callback=lambda e: self.logger.error(f"Task error: {e}"),
                 )
+                async_results.append((task, ar))
 
-                # Progress callback
-                if progress_callback:
-                    try:
-                        progress_callback(task.task_id, i + 1, total)
-                    except Exception as e:
-                        self.logger.warning(f"Progress callback failed: {e}")
+            # Collect results for this level
+            for task, ar in async_results:
+                try:
+                    # Wait for result with timeout
+                    result = ar.get(timeout=self.config.timeout_per_task)
+                    result_map[task.task_id] = result
+                    completed_count += 1
 
-                # Log error details if failed
-                if not result.success:
-                    self.logger.error(
-                        f"Task {task.task_id} failed: {result.error_type}: " f"{result.error_message}"
+                    # Log result
+                    status_symbol = "✓" if result.success else "✗"
+                    self.logger.info(
+                        f"{status_symbol} Task {completed_count}/{total} (level {level}, {task.task_id}): "
+                        f"{result.execution_time:.2f}s, worker={result.worker_id}"
                     )
 
-            except mp.TimeoutError:
-                self.logger.error(f"Task {task.task_id} timed out after {self.config.timeout_per_task}s")
-                results.append(
-                    TaskResult(
+                    # Progress callback
+                    if progress_callback:
+                        try:
+                            progress_callback(task.task_id, completed_count, total)
+                        except Exception as e:
+                            self.logger.warning(f"Progress callback failed: {e}")
+
+                    # Log error details if failed
+                    if not result.success:
+                        self.logger.error(
+                            f"Task {task.task_id} failed: {result.error_type}: {result.error_message}"
+                        )
+
+                except mp.TimeoutError:
+                    self.logger.error(f"Task {task.task_id} timed out after {self.config.timeout_per_task}s")
+                    result_map[task.task_id] = TaskResult(
                         task_id=task.task_id,
                         success=False,
                         status=TaskStatus.TIMEOUT,
                         error_type="TimeoutError",
                         error_message=f"Task exceeded {self.config.timeout_per_task}s timeout",
                     )
-                )
+                    completed_count += 1
 
-            except Exception as e:
-                self.logger.error(f"Task {task.task_id} raised unexpected exception: {e}")
-                results.append(
-                    TaskResult(
+                except Exception as e:
+                    self.logger.error(f"Task {task.task_id} raised unexpected exception: {e}")
+                    result_map[task.task_id] = TaskResult(
                         task_id=task.task_id,
                         success=False,
                         status=TaskStatus.FAILED,
                         error_type=type(e).__name__,
                         error_message=str(e),
                     )
-                )
+                    completed_count += 1
+
+            self.logger.info(f"Level {level} complete: {len(level_tasks)} tasks finished")
+
+        # Reconstruct results list in original task order
+        results = [result_map[task.task_id] for task in tasks]
 
         # Summary statistics
         total_time = time.time() - start_time

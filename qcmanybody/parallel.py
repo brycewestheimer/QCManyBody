@@ -1,5 +1,31 @@
 """Parallel execution engine for QCManyBody calculations.
 
+.. deprecated:: 0.3.0
+    This module (qcmanybody.parallel) is deprecated and will be removed in version 1.0.0.
+    Use qcmanybody.parallel.ParallelManyBodyComputer instead, which provides:
+
+    * Pluggable executor backends (multiprocessing, concurrent.futures, MPI)
+    * Proper dependency-aware execution
+    * Checkpoint/restart capability
+    * Better error handling and logging
+
+    Migration guide:
+
+    Old API (deprecated)::
+
+        from qcmanybody.parallel import ParallelManyBodyExecutor, ParallelConfig
+        executor = ParallelManyBodyExecutor(core, config)
+        results = executor.execute(tasks)
+
+    New API (recommended)::
+
+        from qcmanybody import ManyBodyComputer
+        result = ManyBodyComputer.from_manybodyinput(
+            input_model,
+            parallel=True,
+            n_workers=4
+        )
+
 This module implements level-by-level parallel execution of N-body calculations,
 respecting mathematical dependencies while enabling parallelization within each level.
 
@@ -12,6 +38,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import warnings
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from dataclasses import dataclass
@@ -36,6 +63,15 @@ except ImportError:
     HAS_QCENGINE = False
 
 logger = logging.getLogger(__name__)
+
+# Issue deprecation warning when module is imported
+warnings.warn(
+    "qcmanybody.parallel module is deprecated and will be removed in version 1.0.0. "
+    "Use qcmanybody.parallel.ParallelManyBodyComputer instead. "
+    "See module docstring for migration guide.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 # Shared context used by multiprocessing workers. Each worker process receives a
 # serialized copy of the configuration during initialization to avoid pickling

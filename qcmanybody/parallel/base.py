@@ -228,3 +228,36 @@ class BaseParallelExecutor(ABC):
             "is_initialized": self.is_initialized,
             "config": self.config.__dict__,
         }
+
+    def _group_tasks_by_dependency_level(self, tasks: List["ParallelTask"]) -> Dict[int, List["ParallelTask"]]:
+        """Group tasks by their dependency level for level-by-level execution.
+
+        This method organizes tasks into levels where all tasks at a given level
+        can execute in parallel, but must wait for all tasks at lower levels to
+        complete first. This respects N-body mathematical dependencies.
+
+        Parameters
+        ----------
+        tasks : List[ParallelTask]
+            Tasks to group, should already be ordered by dependency level
+
+        Returns
+        -------
+        Dict[int, List[ParallelTask]]
+            Dictionary mapping level number to list of tasks at that level.
+            Levels are numbered 1, 2, 3, ... where level 1 tasks have no
+            dependencies, level 2 tasks depend on level 1, etc.
+
+        Notes
+        -----
+        Tasks should have been prepared with the dependency_level metadata
+        by ParallelManyBodyComputer using iterate_molecules_by_level().
+        """
+        tasks_by_level = {}
+        for task in tasks:
+            level = task.metadata.get("dependency_level", 1)
+            if level not in tasks_by_level:
+                tasks_by_level[level] = []
+            tasks_by_level[level].append(task)
+
+        return tasks_by_level

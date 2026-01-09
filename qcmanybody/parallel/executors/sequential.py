@@ -61,12 +61,16 @@ class SequentialExecutor(BaseParallelExecutor):
         tasks: List[ParallelTask],
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ) -> List[TaskResult]:
-        """Execute tasks sequentially in order.
+        """Execute tasks sequentially in order with dependency awareness.
+
+        Tasks are executed strictly in the order provided, which naturally
+        respects all dependencies since tasks are pre-ordered by dependency
+        level by ParallelManyBodyComputer.
 
         Parameters
         ----------
         tasks : List[ParallelTask]
-            Tasks to execute
+            Tasks to execute (pre-ordered by dependency level)
         progress_callback : Optional[Callable[[str, int, int], None]]
             Progress callback function
 
@@ -89,7 +93,11 @@ class SequentialExecutor(BaseParallelExecutor):
         results = []
         total = len(tasks)
 
-        self.logger.info(f"Executing {total} tasks sequentially")
+        # Group tasks by level for logging (sequential execution naturally respects order)
+        tasks_by_level = self._group_tasks_by_dependency_level(tasks)
+        self.logger.info(
+            f"Executing {total} tasks sequentially across {len(tasks_by_level)} dependency levels"
+        )
 
         for i, task in enumerate(tasks):
             self.logger.debug(f"Executing task {i+1}/{total}: {task.task_id}")

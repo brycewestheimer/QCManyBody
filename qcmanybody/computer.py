@@ -388,6 +388,62 @@ class ManyBodyComputer(BaseComputerQCNG):
         # print(f" ... setting {sio=}")
         return sio
 
+    def _build_atomic_input(
+        self, molecule: Molecule, model_chemistry: str, specifications: Dict[str, Dict[str, Any]]
+    ) -> AtomicInput:
+        """Build AtomicInput for a fragment calculation.
+
+        This method is shared by both sequential and parallel execution paths to
+        eliminate code duplication. It handles the creation of AtomicInput objects
+        and embedding charges for external potential calculations.
+
+        Parameters
+        ----------
+        molecule : Molecule
+            QCElemental Molecule object for this fragment
+        model_chemistry : str
+            String identifying the quantum chemistry method (e.g., "mp2/cc-pvdz")
+        specifications : Dict[str, Dict[str, Any]]
+            Specifications dictionary containing program and specification details
+
+        Returns
+        -------
+        AtomicInput
+            QCElemental AtomicInput object ready for QCEngine execution
+
+        Raises
+        ------
+        RuntimeError
+            If embedding charges are present but program doesn't support them
+
+        Notes
+        -----
+        This method follows the original design pattern of keeping task preparation
+        logic in a single location for maintainability. Both `from_manybodyinput()`
+        (sequential) and `ParallelManyBodyComputer._execute_parallel()` (parallel)
+        use this method to build AtomicInput objects.
+
+        Examples
+        --------
+        >>> inp = computer._build_atomic_input(mol, "mp2/cc-pvdz", specifications)
+        >>> result = qcng.compute(inp, specifications["mp2/cc-pvdz"]["program"])
+        """
+        inp = AtomicInput(molecule=molecule, **specifications[model_chemistry]["specification"])
+
+        # Handle embedding charges for external potential calculations
+        if molecule.extras.get("embedding_charges"):
+            if specifications[model_chemistry]["program"] == "psi4":
+                charges = molecule.extras["embedding_charges"]
+                fkw = inp.keywords.get("function_kwargs", {})
+                fkw.update({"external_potentials": charges})
+                inp.keywords["function_kwargs"] = fkw
+            else:
+                raise RuntimeError(
+                    f"Don't know how to handle external charges in {specifications[model_chemistry]['program']}"
+                )
+
+        return inp
+
     @classmethod
     def from_manybodyinput(
         cls,
@@ -494,19 +550,9 @@ class ManyBodyComputer(BaseComputerQCNG):
         component_results = {}
 
         for chem, label, imol in computer_model.qcmb_core.iterate_molecules():
-            inp = AtomicInput(molecule=imol, **specifications[chem]["specification"])
+            # Use shared method to build AtomicInput (eliminates code duplication with parallel path)
+            inp = computer_model._build_atomic_input(imol, chem, specifications)
             # inp = AtomicInput(molecule=imol, **specifications[chem]["specification"], extras={"psiapi": True})  # faster for p4
-
-            if imol.extras.get("embedding_charges"):  # or test on self.embedding_charges ?
-                if specifications[chem]["program"] == "psi4":
-                    charges = imol.extras["embedding_charges"]
-                    fkw = inp.keywords.get("function_kwargs", {})
-                    fkw.update({"external_potentials": charges})
-                    inp.keywords["function_kwargs"] = fkw
-                else:
-                    raise RuntimeError(
-                        f"Don't know how to handle external charges in {specifications[chem]['program']}"
-                    )
 
             _, real, bas = delabeler(label)
             result = qcng.compute(inp, specifications[chem]["program"])

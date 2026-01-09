@@ -228,40 +228,53 @@ class ParallelManyBodyComputer(ManyBodyComputer):
             specifications[mtd]["specification"]["driver"] = self.driver
             specifications[mtd]["specification"].pop("schema_name", None)
 
-        # Prepare all tasks upfront
-        tasks = []
-        logger.info("Preparing parallel tasks...")
+        # Prepare all tasks upfront, organized by dependency level
+        tasks_by_level = {}
+        logger.info("Preparing parallel tasks with dependency tracking...")
 
-        for chem, label, imol in self.qcmb_core.iterate_molecules():
-            # Build AtomicInput (same as sequential version)
-            inp = AtomicInput(molecule=imol, **specifications[chem]["specification"])
+        # Use iterate_molecules_by_level() to respect N-body dependencies
+        for level, chem, label, imol in self.qcmb_core.iterate_molecules_by_level():
+            # Use shared method from base class to build AtomicInput (eliminates code duplication)
+            inp = self._build_atomic_input(imol, chem, specifications)
 
-            # Handle embedding charges
-            if imol.extras.get("embedding_charges"):
-                if specifications[chem]["program"] == "psi4":
-                    charges = imol.extras["embedding_charges"]
-                    fkw = inp.keywords.get("function_kwargs", {})
-                    fkw.update({"external_potentials": charges})
-                    inp.keywords["function_kwargs"] = fkw
-                else:
-                    raise RuntimeError(
-                        f"Don't know how to handle external charges in {specifications[chem]['program']}"
-                    )
+            # Extract n-body level from label for priority/metadata
+            _, real_atoms, _ = delabeler(label)
+            nbody_level = len(real_atoms)
 
-            # Create parallel task
+            # Build dependency list: all tasks from lower levels must complete first
+            depends_on = []
+            for lower_level in range(1, level):
+                if lower_level in tasks_by_level:
+                    depends_on.extend([t.task_id for t in tasks_by_level[lower_level]])
+
+            # Create parallel task with populated dependencies
             task = ParallelTask(
                 task_id=label,
                 chemistry=chem,
                 label=label,
                 molecule=imol,
                 atomic_input=inp,
+                nbody=nbody_level,
+                depends_on=depends_on,
                 metadata={
                     "program": specifications[chem]["program"],
+                    "dependency_level": level,
                 },
             )
-            tasks.append(task)
 
-        logger.info(f"Prepared {len(tasks)} tasks for parallel execution")
+            # Group tasks by level
+            if level not in tasks_by_level:
+                tasks_by_level[level] = []
+            tasks_by_level[level].append(task)
+
+        # Flatten to single list, preserving level order for execution
+        tasks = []
+        for level in sorted(tasks_by_level.keys()):
+            tasks.extend(tasks_by_level[level])
+
+        logger.info(
+            f"Prepared {len(tasks)} tasks across {len(tasks_by_level)} dependency levels for parallel execution"
+        )
 
         # Load checkpoint if available and filter completed tasks
         if self.checkpoint_manager:
