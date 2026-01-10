@@ -11,7 +11,7 @@ results, so parallel execution must respect this ordering for correctness.
 from __future__ import annotations
 
 import json
-from typing import Dict, Iterator, List, Set, Tuple, Union
+from typing import Dict, Iterator, List, Optional, Set, Tuple, Union
 
 from qcelemental.models import Molecule
 
@@ -26,7 +26,14 @@ class FragmentDependency:
 
     __slots__ = ('mc', 'label', 'mol', '_real_atoms', '_basis_atoms', '_nbody_level')
 
-    def __init__(self, mc: str, label: str, mol: Molecule):
+    def __init__(
+        self,
+        mc: str,
+        label: str,
+        mol: Molecule,
+        real_atoms: Optional[tuple] = None,
+        basis_atoms: Optional[tuple] = None
+    ):
         """Initialize fragment dependency.
 
         Parameters
@@ -37,25 +44,43 @@ class FragmentDependency:
             Fragment label in JSON format: '["method", [real_atoms], [basis_atoms]]'
         mol : Molecule
             QCElemental Molecule object for this fragment
+        real_atoms : Optional[tuple], optional
+            Pre-computed real atoms tuple (avoids re-parsing label). If not provided,
+            will be parsed from label on first access.
+        basis_atoms : Optional[tuple], optional
+            Pre-computed basis atoms tuple (avoids re-parsing label). If not provided,
+            will be parsed from label on first access.
+
+        Notes
+        -----
+        For performance, prefer passing real_atoms and basis_atoms directly when available
+        to avoid redundant label parsing via delabeler().
         """
         self.mc = mc
         self.label = label
         self.mol = mol
 
-        # Use cached properties for performance
-        self._real_atoms = None
-        self._basis_atoms = None
-        self._nbody_level = None
-
-        # Validate label during construction to maintain error behavior
-        try:
-            _ = self.nbody_level  # This will trigger parsing and validation
-        except Exception:
-            # Reset cached values if validation fails
+        # Use provided values if available, otherwise will parse on demand
+        if real_atoms is not None and basis_atoms is not None:
+            # Pre-computed values provided - no parsing needed
+            self._real_atoms = tuple(real_atoms)
+            self._basis_atoms = tuple(basis_atoms)
+            self._nbody_level = len(real_atoms)
+        else:
+            # Will parse on first access
             self._real_atoms = None
             self._basis_atoms = None
             self._nbody_level = None
-            raise
+
+            # Validate label during construction to maintain error behavior
+            try:
+                _ = self.nbody_level  # This will trigger parsing and validation
+            except Exception:
+                # Reset cached values if validation fails
+                self._real_atoms = None
+                self._basis_atoms = None
+                self._nbody_level = None
+                raise
 
     @property
     def real_atoms(self) -> tuple:
@@ -145,14 +170,17 @@ class NBodyDependencyGraph:
                     if label in done_molecules:
                         continue
 
-                    # Performance optimization: avoid redundant set operations
-                    # We only need the N-body level, not the full ghost atoms calculation
-
-                    # For now, create a placeholder FragmentDependency
+                    # Performance optimization: pass real_atoms and basis_atoms directly
+                    # to avoid redundant label parsing via delabeler()
                     try:
-                        fragment_dep = FragmentDependency(mc, label, None)  # mol will be created later
+                        # Pass pre-computed tuples to avoid re-parsing label
+                        fragment_dep = FragmentDependency(
+                            mc, label, None,  # mol will be created later
+                            real_atoms=real_atoms,
+                            basis_atoms=basis_atoms
+                        )
 
-                        # Group by N-body level
+                        # Group by N-body level (already computed, no parsing needed)
                         level = fragment_dep.nbody_level
                         if level not in self.dependency_levels:
                             self.dependency_levels[level] = []

@@ -32,13 +32,183 @@ from qcmanybody.utils import (
 logger = logging.getLogger(__name__)
 
 
-__all__ = ["ManyBodyCalculator", "ManyBodyCore"]
+from dataclasses import dataclass
+
+
+@dataclass
+class RawMoleculeData:
+    """Stores molecule data without QCElemental validation.
+
+    This lightweight storage class holds raw molecular data (symbols, geometry, fragments)
+    without triggering QCElemental's expensive fragment validation. This enables QCManyBody
+    to work with systems having 64+ fragments, which would otherwise crash during Molecule
+    construction due to O(n²) validation overhead in QCElemental.
+
+    Attributes
+    ----------
+    symbols : list
+        Atom element symbols (e.g., ['O', 'H', 'H', 'O', 'H', 'H', ...])
+    geometry : np.ndarray
+        Nx3 array of atomic coordinates in Bohr
+    fragments : list
+        List of lists, each inner list contains 0-indexed atom indices for a fragment
+        (e.g., [[0,1,2], [3,4,5], ...] for two 3-atom fragments)
+    molecular_charge : float, optional
+        Total molecular charge (default: 0.0)
+    molecular_multiplicity : int, optional
+        Molecular spin multiplicity (default: 1)
+    fix_com : bool, optional
+        Fix center of mass (default: True)
+    fix_orientation : bool, optional
+        Fix molecular orientation (default: True)
+    fix_symmetry : str, optional
+        Symmetry to impose (default: "c1")
+
+    Notes
+    -----
+    This class exists to work around QCElemental's scalability limitations with large
+    fragment counts (>32). QCManyBody doesn't actually need a pre-validated full Molecule
+    object - it only needs raw data to construct small fragment molecules on-demand for
+    QC calculations.
+    """
+    symbols: list
+    geometry: np.ndarray
+    fragments: list
+    molecular_charge: float = 0.0
+    molecular_multiplicity: int = 1
+    fix_com: bool = True
+    fix_orientation: bool = True
+    fix_symmetry: str = "c1"
+
+    @property
+    def nfragments(self) -> int:
+        """Number of fragments in the system."""
+        return len(self.fragments)
+
+    @property
+    def natoms(self) -> int:
+        """Total number of atoms."""
+        return len(self.symbols)
+
+    def get_fragment_atom_indices(self, fragment_indices: Sequence[int]) -> list:
+        """Get 0-indexed atom indices for a subset of fragments.
+
+        Parameters
+        ----------
+        fragment_indices : Sequence[int]
+            0-indexed fragment indices to extract
+
+        Returns
+        -------
+        list
+            List of 0-indexed atom indices
+
+        Examples
+        --------
+        >>> raw_mol = RawMoleculeData(
+        ...     symbols=['O', 'H', 'H', 'O', 'H', 'H'],
+        ...     geometry=np.array([[0,0,0], [1,0,0], [0,1,0], [3,0,0], [4,0,0], [3,1,0]]),
+        ...     fragments=[[0,1,2], [3,4,5]]
+        ... )
+        >>> raw_mol.get_fragment_atom_indices([0])
+        [0, 1, 2]
+        >>> raw_mol.get_fragment_atom_indices([0, 1])
+        [0, 1, 2, 3, 4, 5]
+        """
+        atoms = []
+        for frag_idx in fragment_indices:
+            atoms.extend(self.fragments[frag_idx])
+        return atoms
+
+
+def construct_fragment_molecule(
+    raw_mol: RawMoleculeData,
+    real_fragments: Tuple[int, ...],  # 1-indexed fragment IDs
+    basis_fragments: Tuple[int, ...],  # 1-indexed fragment IDs
+) -> Molecule:
+    """Construct a small Molecule object on-demand for QC calculations.
+
+    This function creates Molecule objects with a SINGLE fragment definition to avoid
+    QCElemental's expensive validation overhead that scales poorly with fragment count.
+    Each constructed Molecule represents one computational fragment (monomer, dimer, etc.)
+    and contains only the atoms needed for that specific calculation.
+
+    Parameters
+    ----------
+    raw_mol : RawMoleculeData
+        Raw molecule data containing symbols, geometry, and fragment definitions
+    real_fragments : Tuple[int, ...]
+        1-indexed fragment IDs for real (non-ghost) atoms
+    basis_fragments : Tuple[int, ...]
+        1-indexed fragment IDs for basis set (real + ghost atoms)
+
+    Returns
+    -------
+    Molecule
+        QCElemental Molecule object with single fragment definition, ready for QC calculation
+
+    Notes
+    -----
+    - Ghost atoms are basis atoms not in real atoms
+    - The returned Molecule has only ONE fragment definition (not multiple), avoiding
+      QCElemental's O(n²) validation overhead
+    - For CP-corrected calculations, basis_fragments includes all supersystem fragments
+    - Atom ordering: real atoms first, then ghost atoms
+
+    Examples
+    --------
+    >>> # Create dimer (1,2) in trimer basis (1,2,3) for CP correction
+    >>> raw_mol = RawMoleculeData(symbols=['He']*3, geometry=..., fragments=[[0],[1],[2]])
+    >>> mol = construct_fragment_molecule(raw_mol, (1,2), (1,2,3))
+    >>> # mol contains 3 atoms: He1, He2 (real), He3 (ghost)
+    >>> # Fragment definition: [[0,1]] (single fragment with 2 real atoms)
+    """
+    # Convert 1-indexed fragment IDs to 0-indexed
+    real_frag_indices = [f - 1 for f in real_fragments]
+    basis_frag_indices = [f - 1 for f in basis_fragments]
+
+    # Get atom indices (0-indexed)
+    real_atom_indices = raw_mol.get_fragment_atom_indices(real_frag_indices)
+    basis_atom_indices = raw_mol.get_fragment_atom_indices(basis_frag_indices)
+
+    # Ghost atoms are in basis but not in real
+    ghost_atom_indices = [idx for idx in basis_atom_indices if idx not in real_atom_indices]
+
+    # Combined atom list: real atoms first, then ghosts
+    all_atom_indices = real_atom_indices + ghost_atom_indices
+
+    # Extract data for these atoms
+    symbols = [raw_mol.symbols[i] for i in all_atom_indices]
+    geometry = raw_mol.geometry[all_atom_indices]
+
+    # Create real/ghost mask
+    real_mask = [True] * len(real_atom_indices) + [False] * len(ghost_atom_indices)
+
+    # Construct Molecule with SINGLE fragment definition
+    # This is key: one fragment avoids QCElemental's expensive multi-fragment validation
+    # Fragment must include ALL atoms (real + ghost), with `real` mask distinguishing them
+    mol = Molecule(
+        symbols=symbols,
+        geometry=geometry,
+        fragments=[[i for i in range(len(all_atom_indices))]],  # Single fragment with all atoms!
+        real=real_mask,
+        molecular_charge=raw_mol.molecular_charge,
+        molecular_multiplicity=raw_mol.molecular_multiplicity,
+        fix_com=raw_mol.fix_com,
+        fix_orientation=raw_mol.fix_orientation,
+        fix_symmetry=raw_mol.fix_symmetry,
+    )
+
+    return mol
+
+
+__all__ = ["ManyBodyCalculator", "ManyBodyCore", "RawMoleculeData", "construct_fragment_molecule"]
 
 
 class ManyBodyCore:
     def __init__(
         self,
-        molecule: Molecule,
+        molecule: Union[Molecule, RawMoleculeData],
         bsse_type: Sequence[BsseEnum],
         levels: Mapping[Union[int, Literal["supersystem"]], str],
         *,
@@ -55,17 +225,45 @@ class ManyBodyCore:
                     f"Embedding charges for EE-MBE are still in testing. Set environment variable QCMANYBODY_EMBEDDING_CHARGES=1 to use at your own risk."
                 )
 
-        if isinstance(molecule, dict):
+        # Support both Molecule (legacy, fails with 32+ fragments) and RawMoleculeData (new, scalable)
+        if isinstance(molecule, RawMoleculeData):
+            # New path: raw molecule data, no validation overhead
+            self.raw_molecule = molecule
+            self.molecule = None  # Will be None in this mode
+            self._use_raw_molecule = True
+            self.nfragments = molecule.nfragments
+        elif isinstance(molecule, dict):
+            # Legacy path: construct Molecule from dict
             mol = Molecule(**molecule)
+            self.molecule = mol
+            self.raw_molecule = None
+            self._use_raw_molecule = False
+            self.nfragments = len(mol.fragments)
         elif isinstance(molecule, Molecule):
+            # Legacy path: copy Molecule
             mol = molecule.copy()
+            self.molecule = mol
+            self.raw_molecule = None
+            self._use_raw_molecule = False
+            self.nfragments = len(mol.fragments)
         else:
-            raise ValueError(f"Molecule input type of {type(molecule)} not understood.")
-        self.molecule = mol
+            raise ValueError(
+                f"Molecule input type of {type(molecule)} not understood. "
+                f"Expected Molecule, RawMoleculeData, or dict."
+            )
+
         self.bsse_type = [BsseEnum(x) for x in bsse_type]
         self.return_total_data = return_total_data
         self.supersystem_ie_only = supersystem_ie_only
-        self.nfragments = len(self.molecule.fragments)
+
+        # Cache fragment range set for embedding charges to avoid recreating on every iteration
+        # For 5,000 HMBE terms with 64 fragments, this saves ~320KB + eliminates 5k redundant set creations
+        if self.embedding_charges:
+            self._fragment_range_set = set(range(1, self.nfragments + 1))
+
+        # Cache fragment range tuple for HMBE and supersystem calculations
+        # Saves ~3.5KB and eliminates 1-2 redundant tuple creations
+        self._fragment_range_tuple = tuple(range(1, self.nfragments + 1))
 
         self.levels = levels
 
@@ -137,18 +335,39 @@ class ManyBodyCore:
             #   want to start a full energy on monsterMol. Reconsider handling in future.
             raise ValueError("""QCManyBody: Molecule fragmentation has not been specified through `fragments` field.""")
 
-        if not np.array_equal(np.concatenate(self.molecule.fragments), np.arange(len(self.molecule.symbols))):
-            raise ValueError("""QCManyBody: non-contiguous fragments could be implemented but aren't at present""")
+        # Validate fragment contiguity and build size/slices dictionaries
+        # Different paths for Molecule vs RawMoleculeData
+        if self._use_raw_molecule:
+            # RawMoleculeData path: validate fragments are contiguous
+            all_atoms = []
+            for frag in self.raw_molecule.fragments:
+                all_atoms.extend(frag)
+            if not np.array_equal(sorted(all_atoms), np.arange(len(self.raw_molecule.symbols))):
+                raise ValueError("""QCManyBody: non-contiguous fragments could be implemented but aren't at present""")
 
-        # Build size and slices dictionaries. Assumes fragments are contiguous
-        self.fragment_size_dict = {}
-        self.fragment_slice_dict = {}
-        iat = 0
-        for ifr in range(1, self.nfragments + 1):
-            nat = len(self.molecule.fragments[ifr - 1])
-            self.fragment_size_dict[ifr] = nat
-            self.fragment_slice_dict[ifr] = slice(iat, iat + nat)
-            iat += nat
+            # Build size and slices dictionaries. Assumes fragments are contiguous
+            self.fragment_size_dict = {}
+            self.fragment_slice_dict = {}
+            iat = 0
+            for ifr in range(1, self.nfragments + 1):
+                nat = len(self.raw_molecule.fragments[ifr - 1])
+                self.fragment_size_dict[ifr] = nat
+                self.fragment_slice_dict[ifr] = slice(iat, iat + nat)
+                iat += nat
+        else:
+            # Legacy Molecule path
+            if not np.array_equal(np.concatenate(self.molecule.fragments), np.arange(len(self.molecule.symbols))):
+                raise ValueError("""QCManyBody: non-contiguous fragments could be implemented but aren't at present""")
+
+            # Build size and slices dictionaries. Assumes fragments are contiguous
+            self.fragment_size_dict = {}
+            self.fragment_slice_dict = {}
+            iat = 0
+            for ifr in range(1, self.nfragments + 1):
+                nat = len(self.molecule.fragments[ifr - 1])
+                self.fragment_size_dict[ifr] = nat
+                self.fragment_slice_dict[ifr] = slice(iat, iat + nat)
+                iat += nat
 
     @property
     def has_supersystem(self) -> bool:
@@ -174,6 +393,16 @@ class ManyBodyCore:
                     enumeration_mode = "direct" if self.nfragments >= 30 else "filter"
 
                 if enumeration_mode == "direct":
+                    # Validate that Schengen is not enabled with direct mode
+                    if self.hmbe_spec.schengen and self.hmbe_spec.schengen.enabled:
+                        raise ValueError(
+                            "Schengen terms with direct enumeration not yet supported. "
+                            "Direct enumeration avoids building the full MBE list (~680k terms for 64 fragments) "
+                            "but Schengen candidate selection currently requires the full list. "
+                            "Use enumeration_mode='filter' for Schengen calculations, "
+                            "or disable Schengen for large systems (>= 30 fragments)."
+                        )
+
                     # Direct enumeration: generate only HMBE terms, skip building full MBE list
                     # This is critical for large systems to avoid memory explosion
                     from qcmanybody.hmbe_enumerate import enumerate_hmbe_terms
@@ -183,7 +412,7 @@ class ManyBodyCore:
 
                     # Construct (frag, bas) pairs directly from HMBE fragment tuples
                     # without generating all ~680k MBE combinations
-                    fragment_range = tuple(range(1, self.nfragments + 1))
+                    fragment_range = self._fragment_range_tuple
                     filtered_dict = {
                         "all": {},
                         "cp": {},
@@ -536,37 +765,66 @@ class ManyBodyCore:
 
         done_molecules = set()
 
-        for mc, compute_dict in self.compute_map.items():
-            # TODO - this is a bit of a hack. Lots of duplication when reaching higher nbody
-            for compute_list in compute_dict["all"].values():
-                for real_atoms, basis_atoms in compute_list:
-                    label = labeler(mc, real_atoms, basis_atoms)
-                    if label in done_molecules:
-                        continue
+        if self._use_raw_molecule:
+            # New path: construct molecules on-demand from RawMoleculeData
+            for mc, compute_dict in self.compute_map.items():
+                for compute_list in compute_dict["all"].values():
+                    for real_atoms, basis_atoms in compute_list:
+                        label = labeler(mc, real_atoms, basis_atoms)
+                        if label in done_molecules:
+                            continue
 
-                    ghost_atoms = list(set(basis_atoms) - set(real_atoms))
+                        # Construct small Molecule on-demand (single fragment definition, no validation overhead)
+                        mol = construct_fragment_molecule(self.raw_molecule, real_atoms, basis_atoms)
 
-                    # Shift to zero-indexing
-                    real_atoms_0 = [x - 1 for x in real_atoms]
-                    ghost_atoms_0 = [x - 1 for x in ghost_atoms]
-                    mol = self.molecule.get_fragment(real_atoms_0, ghost_atoms_0, orient=False, group_fragments=False)
-                    updates = {"fix_com": True, "fix_orientation": True}
-                    if self.molecule.fix_symmetry == "c1":
-                        # symmetry in the parent usually irrelevant to symmetry in the fragments, but
-                        #   if parent symmetry is cancelled, catch that and pass it along
-                        updates["fix_symmetry"] = "c1"
-                    mol = mol.copy(update=updates)
+                        if self.embedding_charges:
+                            # Use cached fragment range set instead of creating new range every iteration
+                            embedding_frags = list(self._fragment_range_set - set(basis_atoms))
+                            charges = []
+                            for ifr in embedding_frags:
+                                # Get fragment geometry directly from raw data
+                                frag_atoms = self.raw_molecule.get_fragment_atom_indices([ifr - 1])
+                                positions = self.raw_molecule.geometry[frag_atoms].tolist()
+                                charges.extend([[chg, i] for i, chg in zip(positions, self.embedding_charges[ifr])])
+                            mol.extras["embedding_charges"] = charges
 
-                    if self.embedding_charges:
-                        embedding_frags = list(set(range(1, self.nfragments + 1)) - set(basis_atoms))
-                        charges = []
-                        for ifr in embedding_frags:
-                            positions = self.molecule.get_fragment(ifr - 1).geometry.tolist()
-                            charges.extend([[chg, i] for i, chg in zip(positions, self.embedding_charges[ifr])])
-                        mol.extras["embedding_charges"] = charges
+                        done_molecules.add(label)
+                        yield mc, label, mol
 
-                    done_molecules.add(label)
-                    yield mc, label, mol
+        else:
+            # Legacy path: use Molecule.get_fragment() (fails with 32+ fragments)
+            for mc, compute_dict in self.compute_map.items():
+                # TODO - this is a bit of a hack. Lots of duplication when reaching higher nbody
+                for compute_list in compute_dict["all"].values():
+                    for real_atoms, basis_atoms in compute_list:
+                        label = labeler(mc, real_atoms, basis_atoms)
+                        if label in done_molecules:
+                            continue
+
+                        ghost_atoms = list(set(basis_atoms) - set(real_atoms))
+
+                        # Shift to zero-indexing
+                        real_atoms_0 = [x - 1 for x in real_atoms]
+                        ghost_atoms_0 = [x - 1 for x in ghost_atoms]
+                        mol = self.molecule.get_fragment(real_atoms_0, ghost_atoms_0, orient=False, group_fragments=False)
+                        updates = {"fix_com": True, "fix_orientation": True}
+                        if self.molecule.fix_symmetry == "c1":
+                            # symmetry in the parent usually irrelevant to symmetry in the fragments, but
+                            #   if parent symmetry is cancelled, catch that and pass it along
+                            updates["fix_symmetry"] = "c1"
+                        mol = mol.copy(update=updates)
+
+                        if self.embedding_charges:
+                            # Use cached fragment range set instead of creating new range every iteration
+                            embedding_frags = list(self._fragment_range_set - set(basis_atoms))
+                            charges = []
+                            for ifr in embedding_frags:
+                                positions = self.molecule.get_fragment(ifr - 1).geometry.tolist()
+                                charges.extend([[chg, i] for i, chg in zip(positions, self.embedding_charges[ifr])])
+                            mol.extras["embedding_charges"] = charges
+
+                        done_molecules.add(label)
+                        yield mc, label, mol
 
     def iterate_molecules_by_level(self) -> Iterable[Tuple[int, str, str, Molecule]]:
         """Iterate over molecules needed for computation, grouped by N-body dependency level.
@@ -605,47 +863,82 @@ class ManyBodyCore:
 
         # Performance optimization: pre-compute common values
         has_embedding = bool(self.embedding_charges)
-        fix_c1_symmetry = self.molecule.fix_symmetry == "c1"
 
-        # Base updates dict - avoid creating it for each molecule
-        base_updates = {"fix_com": True, "fix_orientation": True}
-        if fix_c1_symmetry:
-            base_updates["fix_symmetry"] = "c1"
+        if self._use_raw_molecule:
+            # New path: construct molecules on-demand from RawMoleculeData
+            # No upfront validation, enables 64+ fragment systems
+            for level, fragments_at_level in self.dependency_graph.iterate_molecules_by_level():
+                for fragment_dep in fragments_at_level:
+                    mc = fragment_dep.mc
+                    label = fragment_dep.label
 
-        # Use dependency graph to get level-ordered iteration
-        for level, fragments_at_level in self.dependency_graph.iterate_molecules_by_level():
-            for fragment_dep in fragments_at_level:
-                mc = fragment_dep.mc  # model chemistry
-                label = fragment_dep.label  # fragment label
+                    if label in done_molecules:
+                        continue
 
-                if label in done_molecules:
-                    continue
+                    real_atoms = fragment_dep.real_atoms
+                    basis_atoms = fragment_dep.basis_atoms
 
-                # Performance optimization: use cached real_atoms and basis_atoms from FragmentDependency
-                real_atoms = fragment_dep.real_atoms
-                basis_atoms = fragment_dep.basis_atoms
+                    # Construct small Molecule on-demand (single fragment definition, no validation overhead)
+                    mol = construct_fragment_molecule(self.raw_molecule, real_atoms, basis_atoms)
 
-                # Performance optimization: use set difference for ghost atoms
-                ghost_atoms = list(set(basis_atoms) - set(real_atoms))
+                    if has_embedding:
+                        # Use cached fragment range set instead of creating new range every iteration
+                        embedding_frags = list(self._fragment_range_set - set(basis_atoms))
+                        charges = []
+                        for ifr in embedding_frags:
+                            # Get fragment geometry directly from raw data
+                            frag_atoms = self.raw_molecule.get_fragment_atom_indices([ifr - 1])
+                            positions = self.raw_molecule.geometry[frag_atoms].tolist()
+                            charges.extend([[chg, i] for i, chg in zip(positions, self.embedding_charges[ifr])])
+                        mol.extras["embedding_charges"] = charges
 
-                # Shift to zero-indexing
-                real_atoms_0 = [x - 1 for x in real_atoms]
-                ghost_atoms_0 = [x - 1 for x in ghost_atoms]
-                mol = self.molecule.get_fragment(real_atoms_0, ghost_atoms_0, orient=False, group_fragments=False)
+                    done_molecules.add(label)
+                    yield level, mc, label, mol
 
-                # Use pre-computed updates
-                mol = mol.copy(update=base_updates)
+        else:
+            # Legacy path: use Molecule.get_fragment() (fails with 32+ fragments)
+            fix_c1_symmetry = self.molecule.fix_symmetry == "c1"
 
-                if has_embedding:
-                    embedding_frags = list(set(range(1, self.nfragments + 1)) - set(basis_atoms))
-                    charges = []
-                    for ifr in embedding_frags:
-                        positions = self.molecule.get_fragment(ifr - 1).geometry.tolist()
-                        charges.extend([[chg, i] for i, chg in zip(positions, self.embedding_charges[ifr])])
-                    mol.extras["embedding_charges"] = charges
+            # Base updates dict - avoid creating it for each molecule
+            base_updates = {"fix_com": True, "fix_orientation": True}
+            if fix_c1_symmetry:
+                base_updates["fix_symmetry"] = "c1"
 
-                done_molecules.add(label)
-                yield level, mc, label, mol
+            # Use dependency graph to get level-ordered iteration
+            for level, fragments_at_level in self.dependency_graph.iterate_molecules_by_level():
+                for fragment_dep in fragments_at_level:
+                    mc = fragment_dep.mc  # model chemistry
+                    label = fragment_dep.label  # fragment label
+
+                    if label in done_molecules:
+                        continue
+
+                    # Performance optimization: use cached real_atoms and basis_atoms from FragmentDependency
+                    real_atoms = fragment_dep.real_atoms
+                    basis_atoms = fragment_dep.basis_atoms
+
+                    # Performance optimization: use set difference for ghost atoms
+                    ghost_atoms = list(set(basis_atoms) - set(real_atoms))
+
+                    # Shift to zero-indexing
+                    real_atoms_0 = [x - 1 for x in real_atoms]
+                    ghost_atoms_0 = [x - 1 for x in ghost_atoms]
+                    mol = self.molecule.get_fragment(real_atoms_0, ghost_atoms_0, orient=False, group_fragments=False)
+
+                    # Use pre-computed updates
+                    mol = mol.copy(update=base_updates)
+
+                    if has_embedding:
+                        # Use cached fragment range set instead of creating new range every iteration
+                        embedding_frags = list(self._fragment_range_set - set(basis_atoms))
+                        charges = []
+                        for ifr in embedding_frags:
+                            positions = self.molecule.get_fragment(ifr - 1).geometry.tolist()
+                            charges.extend([[chg, i] for i, chg in zip(positions, self.embedding_charges[ifr])])
+                        mol.extras["embedding_charges"] = charges
+
+                    done_molecules.add(label)
+                    yield level, mc, label, mol
 
     def _assemble_nbody_components(
         self,
@@ -1074,7 +1367,7 @@ class ManyBodyCore:
             supersystem_mc_level = self.levels["supersystem"]
 
             # Super system recovers higher order effects at a lower level
-            frag_range = tuple(range(1, self.nfragments + 1))
+            frag_range = self._fragment_range_tuple
 
             ss_cresults = {k: v for k, v in property_results.items() if delabeler(k)[0] == supersystem_mc_level}
             ss_component_results = self._assemble_nbody_components(property_label, ss_cresults)
